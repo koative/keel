@@ -11,12 +11,14 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@hono/zod-validator": "catalog:",
     "@keel/auth": "workspace:*",
     "@keel/db": "workspace:*",
     "@keel/env": "workspace:*",
     "@keel/http": "workspace:*",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
+    "drizzle-orm": "catalog:",
     "evlog": "catalog:",
     "hono": "catalog:",
     "zod": "catalog:"

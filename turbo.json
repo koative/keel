@@ -9,6 +9,7 @@
     },
     "test": {
       "dependsOn": ["^check-types"],
+      "env": ["DATABASE_URL", "NODE_ENV"],
       "outputs": []
     },
     "check-types": {
@@ -19,17 +20,21 @@
       "persistent": true
     },
     "db:push": {
-      "cache": false
+      "cache": false,
+      "env": ["DATABASE_URL"]
     },
     "db:generate": {
-      "cache": false
+      "cache": false,
+      "env": ["DATABASE_URL"]
     },
     "db:migrate": {
       "cache": false,
+      "env": ["DATABASE_URL"],
       "persistent": true
     },
     "db:studio": {
       "cache": false,
+      "env": ["DATABASE_URL"],
       "persistent": true
     },
     "db:start": {

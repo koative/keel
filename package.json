@@ -7,6 +7,7 @@
       "packages/*"
     ],
     "catalog": {
+      "@hono/zod-validator": "^0.9.0",
       "@t3-oss/env-core": "^0.13.11",
       "@tailwindcss/postcss": "^4.3.3",
       "@tailwindcss/vite": "^4.3.3",
@@ -61,7 +62,8 @@
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f"
+    "docker:logs": "docker compose logs -f",
+    "db:test:push": "DATABASE_URL=postgresql://postgres:password@localhost:5433/keel_test turbo run db:push -F @keel/db -- --force"
   },
   "dependencies": {
     "@keel/env": "workspace:*",

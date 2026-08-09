@@ -1,11 +1,15 @@
 import { initLogger } from "evlog";
 
-// Tests must not depend on a developer's .env. These are set before @keel/env
-// imports dotenv, and dotenv never overwrites an already-present variable, so
-// the values below win in every environment including CI.
-process.env.NODE_ENV = "test";
-process.env.DATABASE_URL ??=
+// Bun loads .env before this preload runs, so `??=` would leave DATABASE_URL
+// pointing at the developer's dev database — and an integration test that
+// inserts and deletes rows would do it there. The test database is therefore
+// assigned unconditionally; TEST_DATABASE_URL is the only way to redirect it.
+process.env.DATABASE_URL =
+	process.env.TEST_DATABASE_URL ??
 	"postgresql://postgres:password@localhost:5433/keel_test";
+
+// The rest only need to exist so @keel/env validates without a .env file.
+process.env.NODE_ENV = "test";
 process.env.BETTER_AUTH_SECRET ??= "test-secret-with-at-least-thirty-two-chars";
 process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
 process.env.CORS_ORIGIN ??= "http://localhost:3001";

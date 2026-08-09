@@ -5,16 +5,21 @@ import {
 	type BetterAuthInstance,
 	createAuthMiddleware,
 } from "evlog/better-auth";
-import { type EvlogVariables, evlog } from "evlog/hono";
+import { evlog } from "evlog/hono";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import type { AppEnv } from "@/lib/context";
+import {
+	internalProjectRoutes,
+	publicProjectRoutesV1,
+} from "@/modules/projects";
 
 const identifyUser = createAuthMiddleware(auth as BetterAuthInstance, {
 	exclude: ["/api/auth/**"],
 	maskEmail: true,
 });
 
-export const app = new Hono<EvlogVariables>();
+export const app = new Hono<AppEnv>();
 
 // CORS is registered first so a preflight OPTIONS short-circuits here: neither a
 // wide event nor a Better Auth session lookup carries information for a request
@@ -45,6 +50,11 @@ app.use("*", async (c, next) => {
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
 app.get("/", (c) => c.text("OK"));
+
+// Two surfaces over one module. `/api` moves with the frontend; `/v1` is the
+// customer contract and only ever grows.
+app.route("/api/projects", internalProjectRoutes);
+app.route("/v1/projects", publicProjectRoutesV1);
 
 // Both terminal paths render the same envelope as every handler, so a client
 // never has to branch on which layer produced the failure.
