@@ -143,3 +143,31 @@ server image is a tsdown bundle; the web image is a static build behind nginx.
   under 40 lines and deliberately repeats nothing the linter already enforces.
 - Logging is evlog's wide-event model: one event per request. 4xx is recorded at
   warn and 5xx at error, so a mistyped identifier does not page anyone.
+
+## Deploying
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+`docker-compose.yml` is a development file. Copying it to a server publishes
+Postgres on 5432 with the password `password`, which is why the deployable topology
+is a separate file: secrets use the `${VAR:?}` form so a missing value fails the
+deploy, Postgres publishes nothing, logs are size-capped, and `TZ`/`PGTZ` are pinned
+to UTC because the Better Auth tables use `timestamp` without a zone while domain
+tables use `timestamptz`.
+
+Migrations run as a one-shot `migrate` service that `server` and `web` gate on with
+`service_completed_successfully`. That makes "migrate once, then start N instances"
+structural: a failed migration stops the deploy with the server never started, and
+no replica can race another to migrate. It runs `bun dist/migrate.mjs`, which uses
+`drizzle-orm`'s migrator over the committed SQL — so the runtime image needs neither
+`drizzle-kit` nor the source tree.
+
+**Never run `db:push` against staging or production.** It diffs the live database
+and applies what it decides, including dropping a column, and it records nothing —
+so a database bootstrapped with `push` will later disagree with the migrator about
+what has been applied. `db:push` is for local iteration only.
+
+TLS and routing are deliberately absent: terminate them in whatever already owns
+your domain and point it at `server` on port 3000.

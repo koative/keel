@@ -1,0 +1,145 @@
+name: keel
+
+# Deployable topology. `docker-compose.yml` is a development file and copying it to
+# a server is the mistake this file exists to prevent: it publishes Postgres on 5432
+# with the password `password`, and its healthcheck-gated `web` would happily serve
+# against a schema nobody migrated.
+#
+# Four deliberate differences from dev:
+#
+#   1. Secrets use the `${VAR:?...}` form, so a missing value fails the deploy
+#      instead of silently resolving to a development default.
+#   2. Migrations run as a one-shot service that everything else gates on, so no
+#      process ever serves traffic against a stale schema and no replica races
+#      another to migrate.
+#   3. Postgres publishes nothing. Services reach it over the compose network, and
+#      the server is `expose`d rather than published so a reverse proxy owns the
+#      edge.
+#   4. Logs are size-capped. The default json-file driver grows without bound, and
+#      a disk filled by container logs takes down everything on the host.
+#
+# TLS and routing are deliberately not here. Terminate them in whatever already
+# owns your domain — Traefik, Caddy, nginx, or a PaaS — and point it at `server`
+# on port 3000. A proxy invented by a boilerplate is a proxy nobody configured.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+x-app-env: &app-env
+  # One env block for every service that imports @keel/env, because that schema is
+  # validated as a whole: the migrator reaches Postgres through the same `db`
+  # singleton as the server, so it parses the same variables even though it only
+  # uses DATABASE_URL.
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
+  BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
+  CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
+  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-keel}
+  LOG_DRAIN: ${LOG_DRAIN:-otlp}
+  NODE_ENV: production
+  OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+  OTLP_HEADERS: ${OTLP_HEADERS:-}
+  # Better Auth resolves the client IP from headers only. Leave this unset unless a
+  # proxy you control rewrites the header, and read the README before setting it:
+  # unset means one shared rate-limit bucket, set-but-forgeable means none at all.
+  TRUSTED_IP_HEADER: ${TRUSTED_IP_HEADER:-}
+  # Pinned rather than inherited from the base image, because the Better Auth tables
+  # use `timestamp` without a zone while domain tables use `timestamptz`. A base
+  # image that changes its default would silently desync the two.
+  TZ: UTC
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-file: "5"
+    max-size: 10m
+
+services:
+  # Runs to completion, then exits. `server` and `web` gate on that exit, which is
+  # what makes "migrate once, then start N instances" structural rather than a
+  # convention someone has to remember.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    command: ["bun", "dist/migrate.mjs"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *app-env
+    logging: *logging
+    # Never restart: a failed migration must stop the deploy and stay readable, not
+    # loop until the schema is half-applied.
+    restart: "no"
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment: *app-env
+    # Not published: the reverse proxy that terminates TLS routes your domain here.
+    expose:
+      - "3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://localhost:3000/ready').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    init: true
+    logging: *logging
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Baked into the bundle at build time, so this is a build concern rather
+        # than a runtime one: changing the API origin needs a rebuild.
+        VITE_SERVER_URL: ${VITE_SERVER_URL:?VITE_SERVER_URL is required}
+    depends_on:
+      server:
+        condition: service_healthy
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    init: true
+    logging: *logging
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-keel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_USER: postgres
+      PGTZ: UTC
+      TZ: UTC
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+    # No `ports`. Reaching this from outside the compose network is a decision that
+    # should require editing this file, not the default.
+    restart: unless-stopped
+    volumes:
+      - keel_postgres_data:/var/lib/postgresql
+
+volumes:
+  keel_postgres_data:

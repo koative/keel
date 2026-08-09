@@ -1,4 +1,5 @@
 import { closePool } from "@keel/db";
+import { env } from "@keel/env/server";
 import { initLogger } from "evlog";
 import { resolveDrain } from "@/lib/observability";
 import { app } from "./app";
@@ -16,7 +17,15 @@ initLogger({
 // same contract `export default { fetch }` had. Serving explicitly is what
 // produces a handle to drain — a default export gives none, so SIGTERM dropped
 // in-flight requests and left the pg pool open behind them.
-const server = Bun.serve({ fetch: app.fetch });
+const server = Bun.serve({
+	fetch: app.fetch,
+	// Socket-level backstop under `requestBodyLimit`. Hono's bodyLimit rejects with
+	// the standard envelope but only after the framework has begun reading; this
+	// ceiling is enforced before that, and without it Bun's default is 128 MB.
+	// Deliberately looser than BODY_LIMIT_BYTES so the middleware — which produces
+	// a diagnosable 413 rather than a dropped socket — stays the one that fires.
+	maxRequestBodySize: env.BODY_LIMIT_BYTES * 2,
+});
 
 process.stdout.write(
 	`[server] listening on ${server.url.href} (port ${server.port})\n`
