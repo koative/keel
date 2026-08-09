@@ -31,10 +31,13 @@ services:
     init: true
     ports:
       - "3000:3000"
+    # BETTER_AUTH_SECRET has no safe default, so it must come from here. Without
+    # it the container exits at startup naming the missing key — see .env.example.
     env_file:
       - path: apps/server/.env
         required: false
     environment:
+      BETTER_AUTH_URL: http://localhost:3000
       CORS_ORIGIN: http://localhost:3001
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/keel
     healthcheck:

@@ -1,124 +1,126 @@
 # keel
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines React, TanStack Router, Hono, and more.
+A SaaS starter where the architecture is enforced by the linter, not described in a document.
 
-## Features
+Layer violations, hand-rolled response shapes and bloated modules fail CI. The
+point is to make it structurally difficult — for a person or an agent, three
+months in — to drift from the design.
 
-- **TypeScript** - For type safety and improved developer experience
-- **TanStack Router** - File-based routing with full type safety
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **Shared UI package** - shadcn/ui primitives live in `packages/ui`
-- **Hono** - Lightweight, performant server framework
-- **Bun** - Runtime environment
-- **Drizzle** - TypeScript-first ORM
-- **PostgreSQL** - Database engine
-- **Authentication** - Better-Auth
-- **Biome** - Linting and formatting
-- **PWA** - Progressive Web App support
-- **Turborepo** - Optimized monorepo build system
+## Stack
 
-## Getting Started
+Bun · Hono · Drizzle · Postgres · Better Auth · Zod · React + TanStack Router ·
+Turborepo · Biome/Ultracite · evlog · bun:test
 
-First, install the dependencies:
+## Why another starter?
+
+Most starters give you wiring. Wiring is the easy part; it stays correct for about
+a month. What rots is everything a README asked you to remember.
+
+**The layers are lint rules.** A `*.service.ts` cannot import `hono` or reach the
+database — Biome rejects it with a message naming the fix. A module's internals
+are private: `@/modules/billing/billing.repository` is an error, `@/modules/billing`
+is not. Nothing here relies on you recalling a diagram.
+
+**One response envelope, no exceptions.** Every success is `{ data }` and every
+failure is `{ error: { code, message, requestId, why, fix } }`. Handlers cannot
+call `c.json` — a GritQL plugin blocks it and points at `@keel/http/response`. The
+same envelope comes out of a handler, a thrown service error and a 404, so a client
+never branches on which layer failed.
+
+**Errors explain themselves.** They are built on evlog's `createError` rather than
+a bespoke `AppError`, so the wide event and the HTTP body cannot disagree. `why`
+and `fix` reach the caller. A 5xx message never does — an unexpected throw carries
+connection strings, and a regression test throws a Postgres URL with a password in
+it and asserts the string appears nowhere in the response.
+
+**Two API surfaces, on purpose.** `/api/*` is internal: unversioned, consumed by a
+typed `hc` client, and free to change in the same commit as the component reading
+it. `/v1/*` is the customer contract: versioned, frozen, and the only thing in the
+OpenAPI document. They share one service and one repository. Refactoring the
+frontend cannot break an integration, because the internal surface is not in the
+spec — a plain Hono cannot register itself in the OpenAPI registry, so that is
+true by construction rather than by a filter someone has to remember.
+
+**End-to-end types, and it is checked.** Rename a field on the server and the web
+app stops compiling, through a prebuilt declaration bundle so the client package
+never re-infers the route tree.
+
+**The enforcement is itself tested.** A rule that quietly stops matching looks
+exactly like clean code. `tools/check-rules.ts` violates all thirteen on purpose
+and fails if any stops firing. It caught two real regressions while this was being
+written.
+
+## Getting started
 
 ```bash
 bun install
-```
-
-## Database Setup
-
-This project uses PostgreSQL with Drizzle ORM.
-
-1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/server/.env` file with your PostgreSQL connection details.
-
-3. Apply the schema to your database:
-
-```bash
-bun run db:push
-```
-
-Then, run the development server:
-
-```bash
+cp .env.example apps/server/.env    # fill in BETTER_AUTH_SECRET
+cp .env.example apps/web/.env
+bun run db:start && bun run db:push
 bun run dev
 ```
 
-Open [http://localhost:3001](http://localhost:3001) in your browser to see the web application.
-The API is running at [http://localhost:3000](http://localhost:3000).
+- Web: <http://localhost:3001>
+- API: <http://localhost:3000>
+- API reference: <http://localhost:3000/reference> · spec at `/doc`
 
-## UI Customization
-
-React web apps in this stack share shadcn/ui primitives through `packages/ui`.
-
-- Change design tokens and global styles in `packages/ui/src/styles/globals.css`
-- Update shared primitives in `packages/ui/src/components/*`
-- Adjust shadcn aliases or style config in `packages/ui/components.json` and `apps/web/components.json`
-
-### Add more shared components
-
-Run this from the project root to add more primitives to the shared UI package:
+## Checks
 
 ```bash
-npx shadcn@latest add accordion dialog popover sheet table -c packages/ui
+bun run check
 ```
 
-Import shared components like this:
+Typecheck, tests, lint, dependency drift and the architecture rules. One command,
+and the same one CI runs.
 
-```tsx
-import { Button } from "@keel/ui/components/button";
+Integration tests need a disposable database. They skip with a notice when it is
+absent, so `bun run check` stays green without Docker — and CI asserts nothing was
+skipped, because a run that proved nothing looks identical to one that proved
+everything.
+
+```bash
+bun run db:test:start && bun run db:test:push
 ```
 
-### Add app-specific blocks
+## Adding a module
 
-If you want to add app-specific blocks instead of shared primitives, run the shadcn CLI from `apps/web`.
+```bash
+bun run gen:module invoices
+```
+
+Writes the domain layer, both HTTP surfaces and the tests, and mounts `/api/invoices`.
+`public/` is written but not mounted: publishing `/v1` is a promise with no expiry
+date, so it takes a deliberate edit. Procedure in
+`.claude/skills/server-module/SKILL.md`; `apps/server/src/modules/projects/` is the
+worked example.
+
+## Layout
+
+```
+apps/
+  server/           Hono API — src/modules/<domain>/, src/lib/
+  web/              React SPA — reaches /api through @keel/api-client
+packages/
+  http/             status codes, error factories, the one response envelope
+  contracts/        Zod schemas derived from the Drizzle tables
+  api-client/       hc<AppType> over a prebuilt declaration bundle
+  db/ auth/ env/    Drizzle, Better Auth, validated environment
+  ui/ config/       shadcn components, shared tsconfig
+tools/              catalog drift, architecture rules, module generator
+```
 
 ## Deployment
 
-### Docker Compose
+`docker compose up -d --build` builds and runs web, server and Postgres. The
+server image is a tsdown bundle; the web image is a static build behind nginx.
+`docker-compose.yml` is the reference for what each service needs.
 
-- Target: web + server
-- Config: `docker-compose.yml` (app Dockerfiles live in `apps/*/Dockerfile`)
-- Build images: bun run docker:build
-- Start: bun run docker:up
-- Logs: bun run docker:logs
-- Stop: bun run docker:down
+## Notes
 
-Environment variables are read from each app's `.env` file (baked into web builds for public variables) and overridden in `docker-compose.yml` for container networking.
-
-For more details, see the guide on [Deploying with Docker Compose](https://www.better-t-stack.dev/docs/guides/docker).
-
-## Git Hooks and Formatting
-
-- Run checks: `bun run check`
-
-## Project Structure
-
-```
-keel/
-├── apps/
-│   ├── web/         # Frontend application (React + TanStack Router)
-│   └── server/      # Backend API (Hono)
-├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── auth/        # Authentication configuration & logic
-│   └── db/          # Database schema & queries
-```
-
-## Available Scripts
-
-- `bun run dev`: Start all applications in development mode
-- `bun run build`: Build all applications
-- `bun run dev:web`: Start only the web application
-- `bun run dev:server`: Start only the server
-- `bun run check-types`: Check TypeScript types across all apps
-- `bun run db:push`: Push schema changes to database
-- `bun run db:generate`: Generate database client/types
-- `bun run db:migrate`: Run database migrations
-- `bun run db:studio`: Open database studio UI
-- `bun run check`: Run Biome formatting and linting
-- `cd apps/web && bun run generate-pwa-assets`: Generate PWA assets
-- `bun run docker:build`: Build the Docker Compose images
-- `bun run docker:up`: Build and start the Docker Compose stack
-- `bun run docker:logs`: Tail logs from the Docker Compose stack
-- `bun run docker:down`: Stop the Docker Compose stack
+- Dependency versions live in the root `workspaces.catalog`. `bun add` cannot write
+  there, so `tools/check-catalog.ts` fails the build when a workspace pins a version
+  the catalog already owns.
+- `AGENTS.md` is the agent entry point; `CLAUDE.md` is a symlink to it. It stays
+  under 40 lines and deliberately repeats nothing the linter already enforces.
+- Logging is evlog's wide-event model: one event per request. 4xx is recorded at
+  warn and 5xx at error, so a mistyped identifier does not page anyone.

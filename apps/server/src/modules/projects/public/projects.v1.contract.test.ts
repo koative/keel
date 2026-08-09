@@ -50,22 +50,6 @@ const document = (await (await app.request("/doc")).json()) as {
 };
 
 describe("published surface", () => {
-	// The internal API is a plain Hono, so it cannot register itself here. This
-	// asserts that structural fact rather than trusting it.
-	it("describes only the versioned endpoints", () => {
-		const operations = Object.entries<Record<string, Operation>>(
-			document.paths
-		).flatMap(([path, methods]) =>
-			Object.keys(methods).map((method) => `${method.toUpperCase()} ${path}`)
-		);
-
-		expect(operations.sort()).toEqual([
-			"GET /v1/projects",
-			"GET /v1/projects/{id}",
-			"POST /v1/projects",
-		]);
-	});
-
 	it("declares every status each operation can return", () => {
 		expect(Object.keys(document.paths["/v1/projects"].get.responses)).toEqual([
 			"200",

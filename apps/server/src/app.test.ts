@@ -29,6 +29,30 @@ describe("app", () => {
 	});
 });
 
+// Which endpoints are published is an app-level fact, not a module's, so it lives
+// here rather than in one module's contract test — otherwise adding a second
+// public surface breaks an unrelated module's suite.
+describe("published surface", () => {
+	it("describes only the versioned endpoints", async () => {
+		const document = (await (await app.request("/doc")).json()) as {
+			paths: Record<string, Record<string, unknown>>;
+		};
+
+		const operations = Object.entries(document.paths).flatMap(
+			([path, methods]) =>
+				Object.keys(methods).map((method) => `${method.toUpperCase()} ${path}`)
+		);
+
+		// The internal API is a plain Hono, so it cannot register itself in the
+		// OpenAPI registry. This asserts that structural fact rather than trusting it.
+		expect(operations.sort()).toEqual([
+			"GET /v1/projects",
+			"GET /v1/projects/{id}",
+			"POST /v1/projects",
+		]);
+	});
+});
+
 describe("terminal responses", () => {
 	it("renders an unknown route as the standard envelope", async () => {
 		const response = await app.request("/nope", {
