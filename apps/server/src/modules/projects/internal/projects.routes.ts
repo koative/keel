@@ -4,7 +4,11 @@ import { requireUser } from "@/lib/auth";
 import type { AppEnv } from "@/lib/context";
 import { rejectInvalid } from "@/lib/validate";
 import { create, get, list, remove } from "./projects.handlers";
-import { createProjectSchema, projectIdSchema } from "./projects.schema";
+import {
+	createProjectSchema,
+	projectIdSchema,
+	projectPageSchema,
+} from "./projects.schema";
 
 /**
  * `/api/projects` — the surface the bundled frontend talks to.
@@ -18,7 +22,7 @@ import { createProjectSchema, projectIdSchema } from "./projects.schema";
  */
 export const internalProjectRoutes = new Hono<AppEnv>()
 	.use(requireUser)
-	.get("/", list)
+	.get("/", zValidator("query", projectPageSchema, rejectInvalid), list)
 	.post("/", zValidator("json", createProjectSchema, rejectInvalid), create)
 	.get("/:id", zValidator("param", projectIdSchema, rejectInvalid), get)
 	.delete("/:id", zValidator("param", projectIdSchema, rejectInvalid), remove);

@@ -19,20 +19,22 @@ import { api } from "@/lib/api";
 export const Route = createFileRoute("/_auth/dashboard")({
 	component: RouteComponent,
 	loader: async () => {
-		const response = await api.api.projects.$get();
+		// `limit` is required by the type because the endpoint declares it. That is
+		// the point: the paging contract is not something to remember.
+		const response = await api.api.projects.$get({ query: { limit: "25" } });
 		if (!response.ok) {
 			throw new Error(
 				readError(await response.json(), response.status).message
 			);
 		}
 
-		return (await response.json()).data;
+		return await response.json();
 	},
 });
 
 function RouteComponent() {
 	const { session } = Route.useRouteContext();
-	const projects = Route.useLoaderData();
+	const { data: projects, meta } = Route.useLoaderData();
 	const router = useRouter();
 
 	return (
@@ -52,6 +54,12 @@ function RouteComponent() {
 					))}
 				</ul>
 			)}
+
+			{meta.nextCursor ? (
+				<p className="text-muted-foreground text-sm">
+					More projects available beyond this page.
+				</p>
+			) : null}
 
 			<Button onClick={() => router.invalidate()} variant="outline">
 				Reload

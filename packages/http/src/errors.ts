@@ -66,3 +66,17 @@ export const badRequest = (detail: string) =>
 		status: status.BAD_REQUEST,
 		why: detail,
 	});
+
+/**
+ * A dependency the request needs is not reachable. Distinct from a 500: nothing
+ * is broken in our code, so a caller — or an orchestrator's readiness probe — is
+ * right to retry rather than escalate.
+ */
+export const serviceUnavailable = (reason: string) =>
+	createError({
+		code: "SERVICE_UNAVAILABLE",
+		fix: "Retry shortly; this clears without intervention once the dependency recovers",
+		message: "Temporarily unavailable",
+		status: status.SERVICE_UNAVAILABLE,
+		why: reason,
+	});

@@ -4,15 +4,9 @@ import { createProjectV1Schema, projectV1Schema } from "./projects.v1.schema";
 
 /**
  * The frozen v1 contract, asserted against the OpenAPI document customers
- * actually consume — and written out rather than snapshotted to a file.
- *
- * A `__snapshots__` entry can be re-blessed with `bun test -u` without anyone
- * reading the diff, which is precisely the accident this test exists to prevent.
- * Spelled out here, breaking an integration means editing an expectation by hand,
- * in a diff a reviewer sees.
- *
- * `pattern` is dropped from the comparison: which regex Zod emits for `uuid` or
- * `date-time` is Zod's business and changes on a patch bump, while
+ * consume — written out rather than snapshotted, because a `__snapshots__`
+ * entry can be re-blessed with `bun test -u` without anyone reading the diff.
+ * `pattern` is dropped: Zod's regex for `uuid` changes on a patch bump, while
  * `format: "uuid"` is the promise we made.
  */
 type Json = Record<string, unknown>;
@@ -32,14 +26,15 @@ const withoutPatterns = (node: unknown): unknown => {
 };
 
 interface Operation {
-	responses: Record<string, unknown>;
+	parameters?: Json[];
+	responses: Record<string, { content?: Record<string, Json> }>;
+	security: Json[];
 }
 
 /**
- * The expected paths are written into the type, not looked up defensively. An
+ * The expected paths are written into the type, not looked up defensively: an
  * optional-chained index would put Biome and `noUncheckedIndexedAccess` in
- * direct disagreement, and the runtime assertion below is what actually proves
- * the document still has these operations.
+ * direct disagreement, and the assertions below prove they are still there.
  */
 const document = (await (await app.request("/doc")).json()) as {
 	components: { schemas: Record<string, Json> };
@@ -49,25 +44,86 @@ const document = (await (await app.request("/doc")).json()) as {
 	};
 };
 
-describe("published surface", () => {
-	it("declares every status each operation can return", () => {
-		expect(Object.keys(document.paths["/v1/projects"].get.responses)).toEqual([
-			"200",
-			"401",
-		]);
-		expect(Object.keys(document.paths["/v1/projects"].post.responses)).toEqual([
-			"201",
-			"401",
-			"409",
-			"422",
-		]);
-		expect(
-			Object.keys(document.paths["/v1/projects/{id}"].get.responses)
-		).toEqual(["200", "401", "404", "422"]);
-	});
-});
+const PROBLEM = "application/problem+json";
 
-describe("v1 project schema", () => {
+const operations: Record<string, Operation> = {
+	"GET /v1/projects": document.paths["/v1/projects"].get,
+	"GET /v1/projects/{id}": document.paths["/v1/projects/{id}"].get,
+	"POST /v1/projects": document.paths["/v1/projects"].post,
+};
+
+describe("the published v1 contract", () => {
+	it.each([
+		["GET /v1/projects", ["200", "401", "422"]],
+		["POST /v1/projects", ["201", "401", "409", "422"]],
+		["GET /v1/projects/{id}", ["200", "401", "404", "422"]],
+	])("%s is behind the session and declares its statuses", (name, expected) => {
+		expect(operations[name]?.security).toEqual([{ sessionCookie: [] }]);
+		expect(Object.keys(operations[name]?.responses ?? {})).toEqual(expected);
+	});
+
+	// A generated SDK matches on the declared media type. Errors are RFC 9457
+	// documents, so declaring `application/json` for one would send every
+	// consumer looking for a content type this API never sends.
+	it.each(Object.keys(operations))("%s serves failures as problems", (name) => {
+		const failures = Object.entries(operations[name]?.responses ?? {}).filter(
+			([code]) => !code.startsWith("2")
+		);
+
+		expect(failures.map(([, body]) => Object.keys(body.content ?? {}))).toEqual(
+			failures.map(() => [PROBLEM])
+		);
+	});
+
+	it("publishes limit and cursor as query parameters on the list", () => {
+		expect(
+			withoutPatterns(document.paths["/v1/projects"].get.parameters)
+		).toEqual([
+			{
+				in: "query",
+				name: "cursor",
+				required: false,
+				schema: { type: "string" },
+			},
+			{
+				in: "query",
+				name: "limit",
+				required: false,
+				schema: { default: 25, maximum: 100, minimum: 1, type: "integer" },
+			},
+		]);
+	});
+
+	// Published under a name rather than inlined: a generated SDK gets a
+	// reusable `ProjectListV1`, so the name itself is part of the contract.
+	it("returns the page token beside the list data", () => {
+		expect(
+			Object.values(document.paths["/v1/projects"].get.responses).map(
+				(response) => response.content
+			)
+		).toContainEqual({
+			"application/json": {
+				schema: { $ref: "#/components/schemas/ProjectListV1" },
+			},
+		});
+
+		expect(withoutPatterns(document.components.schemas.ProjectListV1)).toEqual({
+			properties: {
+				data: {
+					items: { $ref: "#/components/schemas/ProjectV1" },
+					type: "array",
+				},
+				meta: {
+					properties: { nextCursor: { nullable: true, type: "string" } },
+					required: ["nextCursor"],
+					type: "object",
+				},
+			},
+			required: ["data", "meta"],
+			type: "object",
+		});
+	});
+
 	it("exposes exactly four fields, all required, and nothing else", () => {
 		expect(withoutPatterns(document.components.schemas.ProjectV1)).toEqual({
 			properties: {
@@ -81,8 +137,7 @@ describe("v1 project schema", () => {
 		});
 	});
 
-	// The internal surface has these. Promising them publicly would mean
-	// maintaining an owner identifier and a mutation timestamp forever.
+	// Promising an owner identifier or a mutation timestamp means forever.
 	it.each(["ownerId", "owner_id", "updatedAt", "updated_at", "description"])(
 		"does not leak %s",
 		(field) => {
@@ -103,9 +158,8 @@ describe("v1 project schema", () => {
 		});
 	});
 
-	// The public slug rule is stricter than the internal one, which accepts mixed
-	// case. Loosening it later is additive; tightening it would reject bodies a
-	// customer is already sending.
+	// Stricter than the internal rule, which accepts mixed case. Loosening this
+	// later is additive; tightening it rejects bodies a customer already sends.
 	it.each([
 		["billing", true],
 		["billing-eu", true],
@@ -118,11 +172,9 @@ describe("v1 project schema", () => {
 			createProjectV1Schema.safeParse({ name: "Billing", slug }).success
 		).toBe(valid);
 	});
-});
 
-describe("error envelope", () => {
-	it("is published once and shared by every failure", () => {
-		expect(withoutPatterns(document.components.schemas.Error)).toEqual({
+	it("publishes the error envelope once, as a Problem Details document", () => {
+		expect(withoutPatterns(document.components.schemas.Problem)).toEqual({
 			properties: {
 				error: {
 					properties: {
@@ -136,8 +188,11 @@ describe("error envelope", () => {
 					required: ["code", "message", "requestId"],
 					type: "object",
 				},
+				status: { type: "integer" },
+				title: { type: "string" },
+				type: { type: "string" },
 			},
-			required: ["error"],
+			required: ["error", "status", "title", "type"],
 			type: "object",
 		});
 	});

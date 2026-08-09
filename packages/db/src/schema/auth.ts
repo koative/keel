@@ -1,5 +1,13 @@
 import { relations } from "drizzle-orm";
-import { boolean, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+	bigint,
+	boolean,
+	index,
+	integer,
+	pgTable,
+	text,
+	timestamp,
+} from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
 	createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -72,6 +80,21 @@ export const verification = pgTable(
 	},
 	(table) => [index("verification_identifier_idx").on(table.identifier)]
 );
+
+/**
+ * Better Auth's rate-limit counters, required by `rateLimit.storage: "database"`.
+ *
+ * Not written by this application: Better Auth owns every row, keyed by IP and
+ * path. The shape mirrors `getAuthTables` in @better-auth/core — `key` unique,
+ * `count` a plain integer, `lastRequest` an epoch in milliseconds, which is why
+ * it is a bigint and not a timestamp. Better Auth prunes expired rows itself.
+ */
+export const rateLimit = pgTable("rate_limit", {
+	count: integer("count").notNull(),
+	id: text("id").primaryKey(),
+	key: text("key").notNull().unique(),
+	lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
 
 export const userRelations = relations(user, ({ many }) => ({
 	accounts: many(account),

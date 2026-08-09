@@ -1,7 +1,7 @@
 import { db } from "@keel/db";
 import { withUniqueConflict } from "@keel/db/errors";
 import { project } from "@keel/db/schema/project";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 /**
  * The only file in this module allowed to touch Drizzle.
@@ -12,12 +12,40 @@ import { desc, eq } from "drizzle-orm";
  * the handlers, which is where the two halves actually meet.
  */
 
-export async function listByOwner(ownerId: string) {
+/**
+ * Keyset (seek) pagination, not OFFSET.
+ *
+ * OFFSET makes Postgres produce and discard every skipped row, so page 100
+ * costs a hundred times page 1. Worse, the window is defined by position: a row
+ * inserted between two requests shifts everything down, so the client sees one
+ * row twice and never sees another. Seeking from the last row actually read is
+ * stable under concurrent writes and reads the same number of rows every page.
+ */
+export async function listByOwner(
+	ownerId: string,
+	page: { cursor: { createdAt: Date; id: string } | null; limit: number }
+) {
+	// `created_at` is compared and ordered truncated to milliseconds because that
+	// is all an ISO-8601 cursor can carry, while the column stores microseconds.
+	// Comparing the raw column against a truncated bound would silently drop
+	// every row sharing the cursor's millisecond.
+	const createdAtMs = sql`date_trunc('milliseconds', ${project.createdAt})`;
+
+	// The bound is sent as text and cast rather than as a Date, because the
+	// driver would render a Date in the local zone and this column is
+	// `timestamp without time zone` holding UTC.
+	const seek = page.cursor
+		? sql`(${createdAtMs}, ${project.id}) < (${page.cursor.createdAt.toISOString()}::timestamptz at time zone 'UTC', ${page.cursor.id})`
+		: undefined;
+
+	// One row beyond the page. Its presence is what tells the service another
+	// page exists; see `listProjects`.
 	return await db
 		.select()
 		.from(project)
-		.where(eq(project.ownerId, ownerId))
-		.orderBy(desc(project.createdAt));
+		.where(and(eq(project.ownerId, ownerId), seek))
+		.orderBy(desc(createdAtMs), desc(project.id))
+		.limit(page.limit + 1);
 }
 
 export async function findById(id: string) {

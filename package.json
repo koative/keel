@@ -44,7 +44,7 @@
   "type": "module",
   "scripts": {
     "build": "turbo run build",
-    "check": "turbo run check-types test && bun run lint && bun tools/check-catalog.ts && bun tools/check-rules.ts",
+    "check": "turbo run check-types test && bun run lint && bun tools/check-catalog.ts && bun tools/check-rules.ts && bun tools/check-migrations.ts",
     "check-types": "turbo run check-types",
     "db:down": "docker compose down postgres",
     "db:generate": "turbo run db:generate -F @keel/db",
@@ -53,6 +53,7 @@
     "db:start": "docker compose up -d postgres",
     "db:stop": "docker compose stop postgres",
     "db:studio": "turbo run db:studio -F @keel/db",
+    "db:test:migrate": "DATABASE_URL=postgresql://postgres:password@localhost:5433/keel_test turbo run db:migrate -F @keel/db",
     "db:test:push": "DATABASE_URL=postgresql://postgres:password@localhost:5433/keel_test turbo run db:push -F @keel/db -- --force",
     "db:test:start": "docker compose --profile test up -d postgres-test",
     "db:test:stop": "docker compose --profile test down postgres-test",

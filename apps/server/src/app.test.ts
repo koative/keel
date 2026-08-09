@@ -54,12 +54,15 @@ describe("published surface", () => {
 });
 
 describe("terminal responses", () => {
-	it("renders an unknown route as the standard envelope", async () => {
+	it("renders an unknown route as a Problem Details document", async () => {
 		const response = await app.request("/nope", {
 			headers: { "x-request-id": "trace-7" },
 		});
 
 		expect(response.status).toBe(404);
+		expect(response.headers.get("content-type")).toContain(
+			"application/problem+json"
+		);
 		expect(await response.json()).toEqual({
 			error: {
 				code: "NOT_FOUND",
@@ -68,7 +71,33 @@ describe("terminal responses", () => {
 				requestId: "trace-7",
 				why: "No route matched the given identifier",
 			},
+			status: 404,
+			title: "Not found",
+			type: "https://keel.dev/errors/not-found",
 		});
+	});
+
+	// Probes are excluded from the wide-event stream, so there is no id to quote and
+	// advertising one would point at a log line that does not exist.
+	it("answers both probes and leaves them out of correlation", async () => {
+		const live = await app.request("/health");
+		const ready = await app.request("/ready");
+
+		expect(live.status).toBe(200);
+		expect(await live.json()).toEqual({ data: { status: "live" } });
+		expect(live.headers.get("x-request-id")).toBeNull();
+		expect([200, 503]).toContain(ready.status);
+	});
+
+	// A JSON API should never load or execute anything from a response body.
+	it("serves the strictest content policy on the API surface", async () => {
+		const response = await app.request("/");
+
+		expect(response.headers.get("content-security-policy")).toContain(
+			"default-src 'none'"
+		);
+		expect(response.headers.get("x-frame-options")).toBe("DENY");
+		expect(response.headers.get("x-content-type-options")).toBe("nosniff");
 	});
 
 	it("echoes the correlation id on a successful response", async () => {

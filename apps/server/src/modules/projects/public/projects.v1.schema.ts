@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type Cursor, decodeCursor } from "@/lib/cursor";
 
 /**
  * The v1 customer contract. FROZEN.
@@ -35,7 +36,38 @@ export const projectIdV1Schema = z.object({
 // The envelope every response uses. Declared here so a route definition names a
 // schema rather than assembling one inline.
 export const projectV1Envelope = z.object({ data: projectV1Schema });
-export const projectListV1Schema = z.object({ data: z.array(projectV1Schema) });
+
+/**
+ * `meta` was added after v1 shipped. Adding a member is additive — a client that
+ * ignores it is unaffected — which is the only kind of change this file allows.
+ * It landed before the first paged response rather than after, because a client
+ * that has already read an unpaged list would otherwise start silently losing
+ * rows the day a limit appeared.
+ */
+export const projectListV1Schema = z
+	.object({
+		data: z.array(projectV1Schema),
+		meta: z.object({ nextCursor: z.string().nullable() }),
+	})
+	.meta({ id: "ProjectListV1" });
+
+/**
+ * Published query parameters. `cursor` is opaque and validated by decoding it:
+ * a token we did not issue is a 422 from the validator, never a 500 downstream.
+ */
+export const projectPageV1Schema = z.object({
+	cursor: z
+		.string()
+		.transform(decodeCursor)
+		.refine(
+			(cursor: Cursor | null) => cursor !== null,
+			"Not a cursor from a previous page"
+		)
+		.optional(),
+	limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+export type ProjectPageV1Query = z.output<typeof projectPageV1Schema>;
 
 /** Narrower than the internal input on purpose: no description, stricter slug. */
 export const createProjectV1Schema = z

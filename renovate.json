@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "timezone": "Etc/UTC",
+  "schedule": ["before 6am on monday"],
+  "prHourlyLimit": 0,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "minimumReleaseAge": "3 days",
+  "customManagers": [
+    {
+      "description": [
+        "The root `workspaces.catalog` is the single source of truth for every third-party version in this monorepo: workspace packages only ever write `\"catalog:\"`, and `tools/check-catalog.ts` fails the build if one writes a literal range instead.",
+        "Renovate has no native understanding of Bun catalogs. Its `bun` manager reads `workspaces.packages` to discover workspace package.json files and stops there, and catalog extraction exists only for pnpm (pnpm-workspace.yaml) and Yarn (.yarnrc.yml). Without this manager Renovate would open zero dependency PRs for this repository: the catalog is invisible to it, and every workspace dependency reads `catalog:`, which is not a range it can bump.",
+        "So the catalog is extracted explicitly. The `catalog` depType is what the packageRules below match on."
+      ],
+      "customType": "jsonata",
+      "fileFormat": "json",
+      "managerFilePatterns": ["/^package\\.json$/"],
+      "matchStrings": [
+        "$each(workspaces.catalog, function($v, $k) { {\"depName\": $k, \"currentValue\": $v, \"depType\": \"catalog\"} })"
+      ],
+      "datasourceTemplate": "npm"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "One PR a week for everything that is not a major. Reviewing thirty single-dependency PRs is how a repository ends up ignoring all of them.",
+      "matchPackageNames": ["*"],
+      "matchUpdateTypes": ["digest", "minor", "patch", "pin"],
+      "groupName": "non-major dependencies",
+      "groupSlug": "non-major"
+    },
+    {
+      "description": "Majors stay one per PR. A breaking change needs its own diff, its own CI run and its own revert.",
+      "matchUpdateTypes": ["major"],
+      "groupName": null
+    },
+    {
+      "description": "Catalog bumps edit the root package.json only; the workspace packages already say `catalog:` and do not change. Labelled so that a reviewer knows the blast radius is every workspace at once.",
+      "matchDepTypes": ["catalog"],
+      "addLabels": ["catalog"],
+      "semanticCommitScope": "catalog"
+    }
+  ]
+}

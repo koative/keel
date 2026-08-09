@@ -1,7 +1,8 @@
 import type { RouteHandler } from "@hono/zod-openapi";
-import { created, ok } from "@keel/http/response";
+import { created, ok, page } from "@keel/http/response";
 import type { Context } from "hono";
 import type { AppEnv } from "@/lib/context";
+import { encodeCursor } from "@/lib/cursor";
 import { projectStore } from "../projects.repository";
 import {
 	createProject,
@@ -45,8 +46,15 @@ const present = (item: Project): ProjectV1 => ({
 export const list: RouteHandler<typeof listProjectsRoute, AppEnv> = async (
 	c
 ) => {
-	const items = await listProjects(contextOf(c));
-	return ok(c, items.map(present));
+	const query = c.req.valid("query");
+	const listing = await listProjects(
+		{ cursor: query.cursor ?? null, limit: query.limit },
+		contextOf(c)
+	);
+
+	return page(c, listing.items.map(present), {
+		nextCursor: listing.nextCursor && encodeCursor(listing.nextCursor),
+	});
 };
 
 export const create: RouteHandler<typeof createProjectRoute, AppEnv> = async (

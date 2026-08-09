@@ -24,12 +24,32 @@ export interface CreateProject {
 	slug: string;
 }
 
+/**
+ * Where to resume a listing. Declared here rather than imported from
+ * `@/lib/cursor` for the same reason as `Project`: the service does not know
+ * that the caller speaks HTTP, so it cannot know a cursor is ever a string.
+ */
+export interface ProjectCursor {
+	createdAt: Date;
+	id: string;
+}
+
+export interface ProjectPage {
+	cursor: ProjectCursor | null;
+	limit: number;
+}
+
+export interface ProjectListing {
+	items: Project[];
+	nextCursor: ProjectCursor | null;
+}
+
 /** The persistence this service needs, and nothing more. */
 export interface ProjectStore {
 	deleteById: (id: string) => Promise<void>;
 	findById: (id: string) => Promise<Project | undefined>;
 	insert: (input: CreateProject & { ownerId: string }) => Promise<Project>;
-	listByOwner: (ownerId: string) => Promise<Project[]>;
+	listByOwner: (ownerId: string, page: ProjectPage) => Promise<Project[]>;
 }
 
 /**
@@ -52,8 +72,29 @@ export interface ProjectContext {
  */
 const normaliseSlug = (slug: string) => slug.trim().toLowerCase();
 
-export async function listProjects(ctx: ProjectContext): Promise<Project[]> {
-	return await ctx.repository.listByOwner(ctx.actorId);
+/**
+ * One page of the actor's projects, newest first.
+ *
+ * The store is asked for `limit + 1` rows. The extra row is never returned; its
+ * mere presence answers "is there another page?" without a second COUNT over
+ * the same predicate, which would double the work and could still disagree with
+ * the page under a concurrent insert.
+ */
+export async function listProjects(
+	page: ProjectPage,
+	ctx: ProjectContext
+): Promise<ProjectListing> {
+	const rows = await ctx.repository.listByOwner(ctx.actorId, page);
+	const items = rows.slice(0, page.limit);
+	const last = items.at(-1);
+
+	return {
+		items,
+		nextCursor:
+			rows.length > page.limit && last
+				? { createdAt: last.createdAt, id: last.id }
+				: null,
+	};
 }
 
 export async function createProject(

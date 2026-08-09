@@ -29,8 +29,7 @@
     },
     "db:migrate": {
       "cache": false,
-      "env": ["DATABASE_URL"],
-      "persistent": true
+      "env": ["DATABASE_URL"]
     },
     "db:studio": {
       "cache": false,

@@ -55,6 +55,16 @@
         "noJsxPropsBind": "off"
       },
       "style": {
+        /**
+         * Measured, not assumed: this counts CODE lines. Comment lines are not
+         * counted, and neither is the interior of a multi-line template literal
+         * (one statement, however tall). Blank lines are.
+         *
+         * So `wc -l` and this rule disagree, sometimes by a lot, and that is the
+         * behaviour to want: a thorough comment explaining WHY should never push
+         * anyone toward splitting a module that is otherwise coherent. What the
+         * limit forces apart is logic.
+         */
         "noExcessiveLinesPerFile": {
           "level": "error",
           "options": {

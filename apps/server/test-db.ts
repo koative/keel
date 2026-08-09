@@ -8,7 +8,7 @@ import { sql } from "drizzle-orm";
  * database gate on this and announce the skip loudly rather than silently
  * reporting success.
  *
- * Start it with `bun run db:test:start && bun run db:test:push`.
+ * Start it with `bun run db:test:start && bun run db:test:migrate`.
  */
 export async function testDbReady(): Promise<boolean> {
 	try {
@@ -22,7 +22,7 @@ export async function testDbReady(): Promise<boolean> {
 }
 
 export const skipNotice = (suite: string) =>
-	`\n[skip] ${suite} needs the test database.\n        bun run db:test:start && bun run db:test:push\n`;
+	`\n[skip] ${suite} needs the test database.\n        bun run db:test:start && bun run db:test:migrate\n`;
 
 /**
  * Every test owns its own user, so suites never contend over rows and no test

@@ -1,9 +1,11 @@
 import { type AuditableLogger, type EvlogError, parseError } from "evlog";
 import type { Context, MiddlewareHandler } from "hono";
+import { PROBLEM_CONTENT_TYPE, problemType } from "./envelope";
 import {
 	badRequest as badRequestError,
 	conflict as conflictError,
 	notFound as notFoundError,
+	serviceUnavailable as serviceUnavailableError,
 } from "./errors";
 import { type ErrorCode, status } from "./status";
 
@@ -27,6 +29,7 @@ const ERROR_CODE_BY_STATUS = {
 	[status.CONFLICT]: "CONFLICT",
 	[status.UNPROCESSABLE_ENTITY]: "UNPROCESSABLE_ENTITY",
 	[status.TOO_MANY_REQUESTS]: "TOO_MANY_REQUESTS",
+	[status.SERVICE_UNAVAILABLE]: "SERVICE_UNAVAILABLE",
 	[status.INTERNAL_SERVER_ERROR]: "INTERNAL_SERVER_ERROR",
 } as const satisfies Record<number, ErrorCode>;
 
@@ -48,11 +51,30 @@ function requestIdOf(c: Context): string {
  * never writes it, so without this a client has no way to quote the id that
  * appears in our logs. Registered as middleware rather than set per-response so
  * successful responses carry it too.
+ *
+ * Silent on routes excluded from logging — health probes have no wide event, and
+ * advertising an id that appears in no log is worse than advertising none.
  */
 export const echoRequestId: MiddlewareHandler = async (c, next) => {
-	c.header("x-request-id", requestIdOf(c));
+	const id = c.get("log")?.getContext().requestId;
+	if (typeof id === "string") {
+		c.header("x-request-id", id);
+	}
 	await next();
 };
+
+/**
+ * A human-readable summary of the status, required by RFC 9457. Derived from the
+ * code so there is no second table to keep in step.
+ */
+const titleOf = (code: ErrorCode) =>
+	code
+		.toLowerCase()
+		.split("_")
+		.map((word, index) =>
+			index === 0 ? word[0]?.toUpperCase() + word.slice(1) : word
+		)
+		.join(" ");
 
 function errorBody(
 	c: Context,
@@ -65,7 +87,16 @@ function errorBody(
 		link?: string;
 	}
 ) {
-	return c.json({ error: { ...body, requestId: requestIdOf(c) } }, httpStatus);
+	return c.json(
+		{
+			error: { ...body, requestId: requestIdOf(c) },
+			status: httpStatus,
+			title: titleOf(body.code),
+			type: problemType(body.code),
+		},
+		httpStatus,
+		{ "content-type": PROBLEM_CONTENT_TYPE }
+	);
 }
 
 /** Renders a thrown-style error as a returned response, so both paths agree. */
@@ -81,6 +112,17 @@ function fromError(c: Context, httpStatus: ErrorStatus, error: EvlogError) {
 
 export function ok<T>(c: Context, data: T) {
 	return c.json({ data }, status.OK);
+}
+
+/**
+ * A list response carries cursor state alongside the rows.
+ *
+ * Separate from `ok` rather than making `meta` optional there, so a caller cannot
+ * accidentally omit it on an endpoint whose contract promises it — and so the
+ * envelope stays owned by this package rather than assembled at each call site.
+ */
+export function page<T, M>(c: Context, data: T, meta: M) {
+	return c.json({ data, meta }, status.OK);
 }
 
 export function created<T>(c: Context, data: T) {
@@ -101,6 +143,22 @@ export function conflict(c: Context, resource: string, field: string) {
 
 export function badRequest(c: Context, detail: string) {
 	return fromError(c, status.BAD_REQUEST, badRequestError(detail));
+}
+
+/**
+ * Returned rather than thrown, deliberately.
+ *
+ * A readiness probe fires every few seconds, and `failure` records a 5xx at error
+ * level — a pod thirty seconds from ready would emit dozens of error-level events
+ * during an ordinary rolling deploy. Returning keeps the event at info while the
+ * body stays identical to every other failure.
+ */
+export function serviceUnavailable(c: Context, reason: string) {
+	return fromError(
+		c,
+		status.SERVICE_UNAVAILABLE,
+		serviceUnavailableError(reason)
+	);
 }
 
 /**

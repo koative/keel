@@ -1,5 +1,6 @@
 import { projectFields, projectWritableFields } from "@keel/contracts/project";
 import { z } from "zod";
+import { type Cursor, decodeCursor } from "@/lib/cursor";
 
 /**
  * The internal surface. Shaped for the frontend that ships with this repo, and
@@ -32,6 +33,25 @@ export type CreateProjectOutput = z.output<typeof createProjectSchema>;
 export const projectIdSchema = z.object({
 	id: z.uuid(),
 });
+
+/**
+ * Paging is validated, not merely parsed. `limit` is capped so one client cannot
+ * ask for the whole table, and a cursor that did not come from us is rejected
+ * here — decoding in the handler instead would turn a client typo into a 500.
+ */
+export const projectPageSchema = z.object({
+	cursor: z
+		.string()
+		.transform(decodeCursor)
+		.refine(
+			(cursor: Cursor | null) => cursor !== null,
+			"Not a cursor from a previous page"
+		)
+		.optional(),
+	limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+export type ProjectPageQuery = z.output<typeof projectPageSchema>;
 
 /** Everything the frontend has, including fields a customer has no business seeing. */
 export const projectSchema = projectFields;

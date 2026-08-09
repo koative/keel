@@ -7,7 +7,7 @@ Bun + Hono + Drizzle monorepo. Two API surfaces over one domain layer.
 - `bun run check` — typecheck, tests, lint, dependency drift, architecture rules. Run after every change.
 - `bun run dev` — everything; `dev:server` / `dev:web` for one.
 - `bun run db:start && bun run db:push` — dev database.
-- `bun run db:test:start && bun run db:test:push` — disposable test database. Integration suites skip without it.
+- `bun run db:test:start && bun run db:test:migrate` — disposable test database. Integration suites skip without it.
 - `bun run gen:module <name>` — scaffold a server module.
 
 ## Map
@@ -33,7 +33,7 @@ They share one service and one repository, and each has its own Zod schema.
 ## Rules
 
 Everything mechanical is enforced by `bun run check`, not by this file — layer
-boundaries, the 200-line limit, the response envelope and the import direction are
+boundaries, the 200-code-line limit, the response envelope and the import direction are
 Biome rules, and `tools/check-rules.ts` proves each still fires. Read a diagnostic
 before working around it; the message says what to do instead.
 

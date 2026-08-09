@@ -1,5 +1,10 @@
 import type { LogPort } from "@/lib/log";
-import type { CreateProject, Project, ProjectStore } from "./projects.service";
+import type {
+	CreateProject,
+	Project,
+	ProjectPage,
+	ProjectStore,
+} from "./projects.service";
 
 /**
  * Test doubles for the service's two injected dependencies.
@@ -27,6 +32,7 @@ export interface StoreCalls {
 	deleted: string[];
 	inserted: (CreateProject & { ownerId: string })[];
 	listedFor: string[];
+	pages: ProjectPage[];
 }
 
 export interface FakeStore {
@@ -40,7 +46,12 @@ export interface FakeLog {
 }
 
 export function fakeStore(seed: Project[] = []): FakeStore {
-	const calls: StoreCalls = { deleted: [], inserted: [], listedFor: [] };
+	const calls: StoreCalls = {
+		deleted: [],
+		inserted: [],
+		listedFor: [],
+		pages: [],
+	};
 
 	return {
 		calls,
@@ -56,9 +67,26 @@ export function fakeStore(seed: Project[] = []): FakeStore {
 				calls.inserted.push(input);
 				return Promise.resolve(projectRow(input));
 			},
-			listByOwner(ownerId) {
+			listByOwner(ownerId, page) {
 				calls.listedFor.push(ownerId);
-				return Promise.resolve(seed.filter((item) => item.ownerId === ownerId));
+				calls.pages.push(page);
+				// Stands in for the real query: the owner's rows newest first, seeking
+				// past the cursor, one more row than asked for so the service can tell
+				// there is a further page.
+				const after = page.cursor;
+				return Promise.resolve(
+					seed
+						.filter((item) => item.ownerId === ownerId)
+						.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+						.filter(
+							(item) =>
+								!after ||
+								item.createdAt < after.createdAt ||
+								(item.createdAt.getTime() === after.createdAt.getTime() &&
+									item.id < after.id)
+						)
+						.slice(0, page.limit + 1)
+				);
 			},
 		},
 	};

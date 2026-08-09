@@ -55,6 +55,27 @@ describe("error envelope", () => {
 		});
 		expect(withoutId(thrown)).toEqual(withoutId(returned));
 	});
+
+	// RFC 9457. Without these an API gateway or a generated SDK has to be taught
+	// our shape before it can recognise a failure.
+	it.each([
+		["/not-found", 404, "https://keel.dev/errors/not-found", "Not found"],
+		["/conflict", 409, "https://keel.dev/errors/conflict", "Conflict"],
+		["/bad-request", 400, "https://keel.dev/errors/bad-request", "Bad request"],
+	])(
+		"serves %s as a problem document",
+		async (path, expectedStatus, expectedType, expectedTitle) => {
+			const response = await testApp.request(path);
+			const body = errorSchema.parse(await response.json());
+
+			expect(response.headers.get("content-type")).toContain(
+				"application/problem+json"
+			);
+			expect(body.type).toBe(expectedType);
+			expect(body.title).toBe(expectedTitle);
+			expect(body.status).toBe(expectedStatus);
+		}
+	);
 });
 
 describe("request correlation", () => {

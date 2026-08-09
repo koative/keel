@@ -1,7 +1,13 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { auth } from "@keel/auth";
 import { env } from "@keel/env/server";
-import { echoRequestId, failure, notFound } from "@keel/http/response";
+import {
+	echoRequestId,
+	failure,
+	notFound,
+	ok,
+	serviceUnavailable,
+} from "@keel/http/response";
 import { Scalar } from "@scalar/hono-api-reference";
 import {
 	type BetterAuthInstance,
@@ -10,6 +16,12 @@ import {
 import { evlog } from "evlog/hono";
 import { cors } from "hono/cors";
 import type { AppEnv } from "@/lib/context";
+import { checkReadiness } from "@/lib/health";
+import {
+	apiSecurityHeaders,
+	referenceSecurityHeaders,
+	requestBodyLimit,
+} from "@/lib/security";
 import { rejectInvalid } from "@/lib/validate";
 import {
 	internalProjectRoutes,
@@ -23,15 +35,62 @@ const identifyUser = createAuthMiddleware(auth as BetterAuthInstance, {
 
 const app = new OpenAPIHono<AppEnv>({ defaultHook: rejectInvalid });
 
-// CORS is registered first so a preflight OPTIONS short-circuits here: neither a
+/**
+ * Scalar renders client-side from a CDN, so this is the one page that cannot run
+ * under `default-src 'none'`.
+ *
+ * Registered ABOVE the global headers rather than relying on route-level
+ * middleware to override them: `secureHeaders` writes after `next()`, so in Hono's
+ * onion the outer instance unwinds last and wins. A route-level policy declared
+ * below the global one is silently discarded — the page loads, the console shows
+ * blocked scripts, and nothing in the code looks wrong.
+ */
+app.get(
+	"/reference",
+	referenceSecurityHeaders,
+	Scalar({ pageTitle: "keel public API", url: "/doc" })
+);
+
+// Security headers go on before anything can short-circuit, so a preflight and an
+// error carry them too.
+app.use("*", apiSecurityHeaders);
+
+/**
+ * Probes are registered ahead of every other middleware, on purpose.
+ *
+ * A probe must answer whether the process and its dependencies are healthy, and
+ * nothing else — it should not resolve a session, allocate a wide event, or be
+ * rate limited. Middleware registered below does not apply to a route declared
+ * above it, so this placement is the exclusion.
+ *
+ * It is also the safe placement: excluding these paths from evlog while leaving
+ * them downstream of middleware that reads `c.get("log")` turns every probe into
+ * a 500.
+ *
+ * Liveness consults nothing: a 503 here tells an orchestrator to restart the
+ * process, and restarting does not fix Postgres.
+ */
+app.get("/health", (c) => ok(c, { status: "live" }));
+
+// Readiness is the one that checks the database, which is what keeps a pod out of
+// the load balancer while it cannot serve, and what the compose healthcheck polls.
+app.get("/ready", async (c) => {
+	const readiness = await checkReadiness();
+	return readiness.ready
+		? ok(c, { status: "ready" })
+		: serviceUnavailable(c, readiness.reason);
+});
+
+// CORS is registered early so a preflight OPTIONS short-circuits here: neither a
 // wide event nor a Better Auth session lookup carries information for a request
 // that never reaches a handler.
 app.use(
 	"*",
 	cors({
-		allowHeaders: ["Content-Type", "Authorization"],
+		allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
 		allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 		credentials: true,
+		exposeHeaders: ["x-request-id", "Idempotency-Replayed"],
 		origin: env.CORS_ORIGIN,
 	})
 );
@@ -43,13 +102,30 @@ app.use(evlog());
 app.use(echoRequestId);
 
 // Identification runs after evlog because it writes the resolved actor onto the
-// request-scoped logger.
+// request-scoped logger. Guarded rather than assumed: a future route excluded from
+// logging must not become a 500 here.
 app.use("*", async (c, next) => {
-	await identifyUser(c.get("log"), c.req.raw.headers, c.req.path);
+	const log = c.get("log");
+	if (log) {
+		await identifyUser(log, c.req.raw.headers, c.req.path);
+	}
 	await next();
 });
 
+// Before anything reads a body: a validator or a handler that has already buffered
+// an oversized payload has already paid for it.
+app.use("*", requestBodyLimit);
+
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
+
+// Declaring the 401 responses without declaring how to authenticate leaves the
+// contract half-written: a generated SDK has no reason to send the cookie.
+app.openAPIRegistry.registerComponent("securitySchemes", "sessionCookie", {
+	description: "Session cookie issued by POST /api/auth/sign-in/email.",
+	in: "cookie",
+	name: "better-auth.session_token",
+	type: "apiKey",
+});
 
 // Only `publicProjectRoutesV1` is an OpenAPIHono, so only its routes land in the
 // registry. The internal surface is a plain Hono and is therefore absent from the
@@ -63,8 +139,6 @@ app.doc("/doc", {
 	},
 	openapi: "3.1.0",
 });
-
-app.get("/reference", Scalar({ pageTitle: "keel public API", url: "/doc" }));
 
 // Routes are chained so the app type carries every endpoint, which is what makes
 // the typed client in @keel/api-client possible.

@@ -9,6 +9,37 @@ import {
 } from "./projects.repository";
 
 const UUID = /^[0-9a-f-]{36}$/;
+const PAGE = { cursor: null, limit: 25 };
+
+/** Rows for one owner, created concurrently: nothing below depends on the order
+ * they went in, only on the order the query promises. */
+const seedProjects = (ownerId: string, count: number) =>
+	Promise.all(
+		Array.from({ length: count }, () =>
+			insert({
+				description: null,
+				name: "Seeded",
+				ownerId,
+				slug: crypto.randomUUID(),
+			})
+		)
+	);
+
+/**
+ * The published order — `created_at` descending, id as the tiebreak — restated
+ * here rather than read back out of the query, so an assertion cannot pass by
+ * simply echoing whatever the SQL did.
+ *
+ * The tiebreak is the common case, not a corner case: `created_at` is compared
+ * at millisecond resolution and concurrent inserts share a millisecond often.
+ */
+const newestFirst = (rows: { createdAt: Date; id: string }[]) =>
+	[...rows]
+		.sort(
+			(a, b) =>
+				b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : -1)
+		)
+		.map((row) => row.id);
 
 const ready = await testDbReady();
 if (!ready) {
@@ -43,30 +74,59 @@ describe.skipIf(!ready)("projects.repository", () => {
 
 	it("lists only the owner's rows, newest first", async () => {
 		const ownerId = await seedUser();
-		const otherId = await seedUser();
+		const mine = await seedProjects(ownerId, 3);
+		await seedProjects(await seedUser(), 2);
 
-		const first = await insert({
-			description: null,
-			name: "One",
-			ownerId,
-			slug: "one",
-		});
-		const second = await insert({
-			description: null,
-			name: "Two",
-			ownerId,
-			slug: "two",
-		});
-		await insert({
-			description: null,
-			name: "Theirs",
-			ownerId: otherId,
-			slug: "one",
-		});
+		const found = await listByOwner(ownerId, PAGE);
 
-		const found = await listByOwner(ownerId);
+		expect(found.map((item) => item.id)).toEqual(newestFirst(mine));
+	});
 
-		expect(found.map((item) => item.id)).toEqual([second.id, first.id]);
+	// The probe row is what tells the service another page exists, so the query
+	// must overshoot by exactly one and never by more.
+	it("fetches one row beyond the limit, and stops there", async () => {
+		const ownerId = await seedUser();
+		await seedProjects(ownerId, 4);
+
+		expect(await listByOwner(ownerId, { cursor: null, limit: 2 })).toHaveLength(
+			3
+		);
+		expect(await listByOwner(ownerId, { cursor: null, limit: 9 })).toHaveLength(
+			4
+		);
+	});
+
+	/**
+	 * The property that matters: walking the cursor two rows at a time
+	 * reproduces the published order exactly — no row returned twice, none
+	 * skipped — while a second owner's rows sit in the same table and in the
+	 * same milliseconds, and must stay invisible throughout.
+	 *
+	 * Recursive rather than a loop because each request needs the cursor from
+	 * the response before it; there is nothing here to run concurrently.
+	 */
+	it("pages through every row exactly once", async () => {
+		const ownerId = await seedUser();
+		const [mine] = await Promise.all([
+			seedProjects(ownerId, 7),
+			seedProjects(await seedUser(), 3),
+		]);
+
+		const walk = async (
+			cursor: { createdAt: Date; id: string } | null,
+			seen: string[]
+		): Promise<string[]> => {
+			const rows = await listByOwner(ownerId, { cursor, limit: 2 });
+			const items = rows.slice(0, 2);
+			const ids = [...seen, ...items.map((item) => item.id)];
+			const last = items.at(-1);
+
+			return rows.length > 2 && last
+				? await walk({ createdAt: last.createdAt, id: last.id }, ids)
+				: ids;
+		};
+
+		expect(await walk(null, [])).toEqual(newestFirst(mine));
 	});
 
 	// The same slug under a different owner must be allowed: two tenants may both

@@ -70,8 +70,8 @@ bun run dev
 bun run check
 ```
 
-Typecheck, tests, lint, dependency drift and the architecture rules. One command,
-and the same one CI runs.
+Typecheck, tests, lint, dependency drift, the architecture rules and schema/migration
+drift. One command, and the same one CI runs.
 
 Integration tests need a disposable database. They skip with a notice when it is
 absent, so `bun run check` stays green without Docker — and CI asserts nothing was
@@ -79,8 +79,27 @@ skipped, because a run that proved nothing looks identical to one that proved
 everything.
 
 ```bash
-bun run db:test:start && bun run db:test:push
+bun run db:test:start && bun run db:test:migrate
 ```
+
+The test database gets the same migrations production does, so a broken migration
+fails the suite rather than only the deploy.
+
+## Going to production
+
+Four settings the defaults deliberately do not choose for you.
+
+| Setting | Why it is not defaulted |
+| --- | --- |
+| `LOG_DRAIN=otlp` + `OTLP_ENDPOINT` | `fs` writes into the container filesystem. Wide events are the whole observability story; shipping without a drain discards every one of them. |
+| `TRUSTED_IP_HEADER=x-forwarded-for` | Better Auth resolves the client IP from headers only. Unset, every caller shares one rate-limit bucket per path, so one aggressive client can lock everyone out of `/sign-in`. Set it only when a proxy you control rewrites the header — naming it on a directly reachable app lets a caller forge it. |
+| `bun run db:migrate` in the deploy | `db:push` diffs the live database against the schema and applies what it decides is needed, including dropping a column. That is a development tool. `tools/check-migrations.ts` fails the build when the two drift. |
+| `BETTER_AUTH_SECRET` | No safe default exists. |
+
+`SIGTERM` drains in-flight requests, closes the connection pool, then exits — so a
+rolling deploy does not drop work. `/health` is liveness and `/ready` checks
+Postgres; the container healthcheck polls `/ready`, because a process that cannot
+reach its database should leave the load balancer rather than be restarted.
 
 ## Adding a module
 

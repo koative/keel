@@ -1,6 +1,7 @@
-import { created, noContent, ok } from "@keel/http/response";
+import { created, noContent, ok, page } from "@keel/http/response";
 import type { Context } from "hono";
 import type { AppEnv } from "@/lib/context";
+import { encodeCursor } from "@/lib/cursor";
 import { projectStore } from "../projects.repository";
 import {
 	createProject,
@@ -13,6 +14,7 @@ import {
 import type {
 	CreateProjectInput,
 	CreateProjectOutput,
+	ProjectPageQuery,
 	ProjectResponse,
 } from "./projects.schema";
 
@@ -47,10 +49,22 @@ type IdContext = Context<
 	string,
 	{ in: { param: { id: string } }; out: { param: { id: string } } }
 >;
+type ListContext = Context<
+	AppEnv,
+	string,
+	{ in: { query: Record<string, string> }; out: { query: ProjectPageQuery } }
+>;
 
-export async function list(c: Context<AppEnv>) {
-	const items = await listProjects(contextOf(c));
-	return ok(c, items.map(present));
+export async function list(c: ListContext) {
+	const query = c.req.valid("query");
+	const listing = await listProjects(
+		{ cursor: query.cursor ?? null, limit: query.limit },
+		contextOf(c)
+	);
+
+	return page(c, listing.items.map(present), {
+		nextCursor: listing.nextCursor && encodeCursor(listing.nextCursor),
+	});
 }
 
 export async function create(c: CreateContext) {

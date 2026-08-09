@@ -12,6 +12,11 @@ if (!ready) {
 const api = createClient();
 const slug = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 
+interface Page<T> {
+	data: T;
+	meta: { nextCursor: string | null };
+}
+
 describe.skipIf(!ready)("v1 project routes", () => {
 	beforeAll(async () => {
 		api.cookie = await signUp();
@@ -93,5 +98,46 @@ describe.skipIf(!ready)("v1 project routes", () => {
 			(await api.request(`/api/projects/${data.id}`, { method: "DELETE" }))
 				.status
 		).toBe(204);
+	});
+
+	it.each(["limit=0", "limit=101", "limit=abc", "cursor=%20not-a-cursor"])(
+		"rejects ?%s as a 422, never a 500",
+		async (query) => {
+			expect((await api.request(`/v1/projects?${query}`)).status).toBe(422);
+		}
+	);
+
+	it("pages with the cursor from the previous response", async () => {
+		// Five of its own, so the assertions hold no matter what the tests above
+		// left in this owner's list.
+		await Promise.all(
+			Array.from({ length: 5 }, (_unused, index) =>
+				api.post("/v1/projects", {
+					name: `Page ${index}`,
+					slug: slug("v1page"),
+				})
+			)
+		);
+
+		const first = await api.body<Page<ProjectV1[]>>(
+			await api.request("/v1/projects?limit=2")
+		);
+		const second = await api.body<Page<ProjectV1[]>>(
+			await api.request(
+				`/v1/projects?limit=2&cursor=${encodeURIComponent(first.meta.nextCursor ?? "")}`
+			)
+		);
+		const whole = await api.body<Page<ProjectV1[]>>(
+			await api.request("/v1/projects?limit=100")
+		);
+
+		expect(first.data).toHaveLength(2);
+		expect(second.data).toHaveLength(2);
+		// A cursor that repeated or skipped a row shows up here as a duplicate.
+		expect(
+			new Set([...first.data, ...second.data].map((item) => item.id)).size
+		).toBe(4);
+		// Nothing left to fetch, so the token is null rather than a dead cursor.
+		expect(whole.meta.nextCursor).toBeNull();
 	});
 });

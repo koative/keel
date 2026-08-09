@@ -40,13 +40,19 @@ services:
       BETTER_AUTH_URL: http://localhost:3000
       CORS_ORIGIN: http://localhost:3001
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/keel
+    # /ready, not /. Liveness and readiness answer different questions: / and
+    # /health say the process is up and should not be restarted, /ready says it
+    # can serve traffic — which means Postgres answered. Compose only has one
+    # healthcheck and it gates `depends_on`, so it has to be the readiness one;
+    # pointing it at a route that returns 200 unconditionally reported the
+    # container healthy with a dead database and let `web` start behind it.
     healthcheck:
       test:
         [
           "CMD",
           "node",
           "-e",
-          "fetch('http://localhost:3000/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+          "fetch('http://localhost:3000/ready').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
       interval: 10s
       timeout: 5s

@@ -30,6 +30,17 @@ beforeEach(() => {
 	logger = fakeLog();
 });
 
+const PAGE = { cursor: null, limit: 25 };
+
+/** Distinct timestamps, newest last, so the expected order is unambiguous. */
+const rows = (count: number) =>
+	Array.from({ length: count }, (_, index) =>
+		projectRow({
+			createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)),
+			id: `p${index}`,
+		})
+	);
+
 describe("list", () => {
 	it("scopes the query to the actor, never to a caller-supplied owner", async () => {
 		store = fakeStore([
@@ -37,10 +48,58 @@ describe("list", () => {
 			projectRow({ id: "theirs", ownerId: OTHER_ACTOR }),
 		]);
 
-		const found = await listProjects(ctx());
+		const found = await listProjects(PAGE, ctx());
 
 		expect(store.calls.listedFor).toEqual([ACTOR]);
-		expect(found.map((item) => item.id)).toEqual(["mine"]);
+		expect(found.items.map((item) => item.id)).toEqual(["mine"]);
+	});
+
+	it("returns at most the requested limit, never the probe row", async () => {
+		store = fakeStore(rows(5));
+
+		const found = await listProjects({ cursor: null, limit: 2 }, ctx());
+
+		expect(found.items.map((item) => item.id)).toEqual(["p4", "p3"]);
+	});
+
+	it("reports a next cursor pointing at the last returned row", async () => {
+		store = fakeStore(rows(5));
+
+		const found = await listProjects({ cursor: null, limit: 2 }, ctx());
+
+		expect(found.nextCursor).toEqual({
+			createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 3)),
+			id: "p3",
+		});
+	});
+
+	// The store is asked for limit + 1 rows; a short answer is the last page. A
+	// full page whose successor is empty must not advertise a further page.
+	it.each([
+		[3, 3, null],
+		[3, 4, "p1"],
+	])(
+		"over %p rows with limit %p reports nextCursor %p",
+		async (limit, seeded, expected) => {
+			store = fakeStore(rows(seeded));
+
+			const found = await listProjects({ cursor: null, limit }, ctx());
+
+			expect(found.nextCursor?.id ?? null).toBe(expected);
+		}
+	);
+
+	it("hands the cursor to the store untouched", async () => {
+		store = fakeStore(rows(5));
+		const cursor = {
+			createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 3)),
+			id: "p3",
+		};
+
+		const found = await listProjects({ cursor, limit: 2 }, ctx());
+
+		expect(store.calls.pages).toEqual([{ cursor, limit: 2 }]);
+		expect(found.items.map((item) => item.id)).toEqual(["p2", "p1"]);
 	});
 });
 

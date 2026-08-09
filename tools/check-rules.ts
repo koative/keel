@@ -30,6 +30,9 @@ interface Expectation {
 	why: string;
 }
 
+// Deliberately 201 statements with no comments and no blank lines: the rule
+// counts code, so a fixture padded with comments would pass and the check would
+// report a working rule as dead.
 const LONG_FILE = `${Array.from({ length: 201 }, (_, index) => `export const value${index} = ${index};`).join("\n")}\n`;
 
 const EXPECTATIONS: Expectation[] = [
@@ -90,7 +93,7 @@ const EXPECTATIONS: Expectation[] = [
 		path: `${MODULE_DIR}/long.service.ts`,
 		rule: "lint/style/noExcessiveLinesPerFile",
 		source: LONG_FILE,
-		why: "a file grew past 200 lines",
+		why: "a file grew past 200 code lines",
 	},
 	{
 		path: `${MODULE_DIR}/undeclared.service.ts`,
