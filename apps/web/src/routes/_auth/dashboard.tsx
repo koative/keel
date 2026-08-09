@@ -33,14 +33,14 @@ export const Route = createFileRoute("/_auth/dashboard")({
 });
 
 function RouteComponent() {
-	const { session } = Route.useRouteContext();
+	const { user } = Route.useRouteContext();
 	const { data: projects, meta } = Route.useLoaderData();
 	const router = useRouter();
 
 	return (
 		<div className="space-y-4 p-6">
 			<h1 className="font-bold text-2xl">Dashboard</h1>
-			<p>Welcome {session.data?.user.name}</p>
+			<p>Welcome {user.name}</p>
 
 			{projects.length === 0 ? (
 				<p className="text-muted-foreground">No projects yet.</p>

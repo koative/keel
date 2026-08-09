@@ -12,8 +12,10 @@ import Loader from "./loader";
 
 export default function SignUpForm({
 	onSwitchToSignIn,
+	redirectTo,
 }: {
 	onSwitchToSignIn: () => void;
+	redirectTo: string;
 }) {
 	const navigate = useNavigate({
 		from: "/",
@@ -38,9 +40,9 @@ export default function SignUpForm({
 						toast.error(error.error.message || error.error.statusText);
 					},
 					onSuccess: () => {
-						navigate({
-							to: "/dashboard",
-						});
+						// `href`, not `to`: the destination came from a guard as a full path
+						// and is not a known route literal.
+						navigate({ href: redirectTo });
 						toast.success("Sign up successful");
 					},
 				}
