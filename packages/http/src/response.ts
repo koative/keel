@@ -1,6 +1,5 @@
 import { type AuditableLogger, type EvlogError, parseError } from "evlog";
 import type { Context, MiddlewareHandler } from "hono";
-import { z } from "zod";
 import {
 	badRequest as badRequestError,
 	conflict as conflictError,
@@ -32,21 +31,6 @@ const ERROR_CODE_BY_STATUS = {
 } as const satisfies Record<number, ErrorCode>;
 
 type ErrorStatus = keyof typeof ERROR_CODE_BY_STATUS;
-
-export const errorSchema = z
-	.object({
-		error: z.object({
-			code: z.string(),
-			fix: z.string().optional(),
-			link: z.string().optional(),
-			message: z.string(),
-			requestId: z.string(),
-			why: z.string().optional(),
-		}),
-	})
-	.meta({ id: "Error" });
-
-export type ErrorBody = z.infer<typeof errorSchema>;
 
 /**
  * evlog derives a requestId for every request from the inbound `x-request-id`

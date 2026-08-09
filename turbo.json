@@ -13,7 +13,7 @@
       "outputs": []
     },
     "check-types": {
-      "dependsOn": ["^check-types"]
+      "dependsOn": ["^check-types", "^build:types"]
     },
     "dev": {
       "cache": false,
@@ -50,6 +50,10 @@
     },
     "db:down": {
       "cache": false
+    },
+    "build:types": {
+      "dependsOn": [],
+      "outputs": ["types/**"]
     }
   }
 }

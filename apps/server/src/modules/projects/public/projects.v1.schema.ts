@@ -32,9 +32,10 @@ export const projectIdV1Schema = z.object({
 	id: z.uuid(),
 });
 
-export const projectListV1Schema = z.object({
-	data: z.array(projectV1Schema),
-});
+// The envelope every response uses. Declared here so a route definition names a
+// schema rather than assembling one inline.
+export const projectV1Envelope = z.object({ data: projectV1Schema });
+export const projectListV1Schema = z.object({ data: z.array(projectV1Schema) });
 
 /** Narrower than the internal input on purpose: no description, stricter slug. */
 export const createProjectV1Schema = z

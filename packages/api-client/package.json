@@ -1,0 +1,21 @@
+{
+  "name": "@keel/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "catalog:",
+    "server": "workspace:*"
+  },
+  "devDependencies": {
+    "@keel/config": "workspace:*",
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "extends": "@keel/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "strictNullChecks": true
+  }
+}

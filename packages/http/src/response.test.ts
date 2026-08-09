@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { errorSchema } from "./response";
+import { errorSchema } from "./envelope";
 import { testApp } from "./test-app";
 
 const UUID = /^[0-9a-f-]{36}$/;

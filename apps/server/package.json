@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "scripts": {
     "build": "tsdown",
+    "build:types": "tsdown -c tsdown.types.config.ts",
     "check-types": "tsc --noEmit",
     "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
     "dev": "bun run --hot src/index.ts",
@@ -11,11 +12,14 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@hono/zod-openapi": "catalog:",
     "@hono/zod-validator": "catalog:",
     "@keel/auth": "workspace:*",
+    "@keel/contracts": "workspace:*",
     "@keel/db": "workspace:*",
     "@keel/env": "workspace:*",
     "@keel/http": "workspace:*",
+    "@scalar/hono-api-reference": "catalog:",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
     "drizzle-orm": "catalog:",
@@ -28,5 +32,10 @@
     "@types/bun": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:"
+  },
+  "exports": {
+    "./app-type": {
+      "types": "./types/app.d.mts"
+    }
   }
 }

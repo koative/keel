@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { type DrainContext, initLogger } from "evlog";
-import { errorSchema } from "./response";
+import { errorSchema } from "./envelope";
 import { appWithoutLogger, LEAKED_SECRET, testApp } from "./test-app";
 
 describe("unexpected failures", () => {

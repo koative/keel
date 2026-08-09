@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.5.7",
+    "@keel/api-client": "workspace:*",
     "@keel/env": "workspace:*",
+    "@keel/http": "workspace:*",
     "@keel/ui": "workspace:*",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-form": "^1.33.2",

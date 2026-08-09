@@ -6,6 +6,7 @@
   "exports": {
     "./status": "./src/status.ts",
     "./errors": "./src/errors.ts",
+    "./envelope": "./src/envelope.ts",
     "./response": "./src/response.ts",
     "./openapi": "./src/openapi.ts"
   },
