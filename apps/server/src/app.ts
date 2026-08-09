@@ -1,5 +1,6 @@
 import { auth } from "@keel/auth";
 import { env } from "@keel/env/server";
+import { echoRequestId, failure, notFound } from "@keel/http/response";
 import {
 	type BetterAuthInstance,
 	createAuthMiddleware,
@@ -30,6 +31,10 @@ app.use(
 
 app.use(evlog());
 
+// evlog reads x-request-id but never echoes it, so the correlation id would
+// otherwise be invisible to the client.
+app.use(echoRequestId);
+
 // Identification runs after evlog because it writes the resolved actor onto the
 // request-scoped logger.
 app.use("*", async (c, next) => {
@@ -40,3 +45,8 @@ app.use("*", async (c, next) => {
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
 app.get("/", (c) => c.text("OK"));
+
+// Both terminal paths render the same envelope as every handler, so a client
+// never has to branch on which layer produced the failure.
+app.notFound((c) => notFound(c, "Route"));
+app.onError((error, c) => failure(c, error));

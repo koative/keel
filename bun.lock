@@ -24,6 +24,7 @@
         "@keel/auth": "workspace:*",
         "@keel/db": "workspace:*",
         "@keel/env": "workspace:*",
+        "@keel/http": "workspace:*",
         "better-auth": "catalog:",
         "dotenv": "catalog:",
         "evlog": "catalog:",
@@ -94,6 +95,7 @@
       "name": "@keel/db",
       "dependencies": {
         "@keel/env": "workspace:*",
+        "@keel/http": "workspace:*",
         "dotenv": "catalog:",
         "drizzle-orm": "catalog:",
         "pg": "catalog:",
@@ -112,6 +114,20 @@
       "dependencies": {
         "@t3-oss/env-core": "catalog:",
         "dotenv": "catalog:",
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@keel/config": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/http": {
+      "name": "@keel/http",
+      "version": "0.0.0",
+      "dependencies": {
+        "evlog": "catalog:",
+        "hono": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -577,6 +593,8 @@
     "@keel/db": ["@keel/db@workspace:packages/db"],
 
     "@keel/env": ["@keel/env@workspace:packages/env"],
+
+    "@keel/http": ["@keel/http@workspace:packages/http"],
 
     "@keel/ui": ["@keel/ui@workspace:packages/ui"],
 

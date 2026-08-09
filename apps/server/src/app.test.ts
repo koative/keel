@@ -29,6 +29,33 @@ describe("app", () => {
 	});
 });
 
+describe("terminal responses", () => {
+	it("renders an unknown route as the standard envelope", async () => {
+		const response = await app.request("/nope", {
+			headers: { "x-request-id": "trace-7" },
+		});
+
+		expect(response.status).toBe(404);
+		expect(await response.json()).toEqual({
+			error: {
+				code: "NOT_FOUND",
+				fix: "Check the identifier and retry, or list the collection to discover valid ones",
+				message: "Route not found",
+				requestId: "trace-7",
+				why: "No route matched the given identifier",
+			},
+		});
+	});
+
+	it("echoes the correlation id on a successful response", async () => {
+		const response = await app.request("/", {
+			headers: { "x-request-id": "trace-8" },
+		});
+
+		expect(response.headers.get("x-request-id")).toBe("trace-8");
+	});
+});
+
 // CORS is registered ahead of the logger and the Better Auth identifier. The
 // only observable proof is that a preflight produces no wide event at all,
 // because nothing downstream of CORS ever runs for it.

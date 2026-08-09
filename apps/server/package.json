@@ -14,6 +14,7 @@
     "@keel/auth": "workspace:*",
     "@keel/db": "workspace:*",
     "@keel/env": "workspace:*",
+    "@keel/http": "workspace:*",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
     "evlog": "catalog:",
