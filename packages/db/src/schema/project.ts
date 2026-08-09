@@ -7,19 +7,26 @@ import {
 	uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
+import { organization } from "./organization";
 
 export const project = pgTable(
 	"project",
 	{
 		createdAt: timestamp("created_at").defaultNow().notNull(),
+		// Nullable and `set null` rather than `cascade`: removing a member must not
+		// take the organization's work with them. This is display and audit data,
+		// not the tenancy key — that is `organizationId`.
+		createdBy: text("created_by").references(() => user.id, {
+			onDelete: "set null",
+		}),
 		description: text("description"),
 		id: text("id")
 			.primaryKey()
 			.$defaultFn(() => crypto.randomUUID()),
 		name: text("name").notNull(),
-		ownerId: text("owner_id")
+		organizationId: text("organization_id")
 			.notNull()
-			.references(() => user.id, { onDelete: "cascade" }),
+			.references(() => organization.id, { onDelete: "cascade" }),
 		slug: text("slug").notNull(),
 		updatedAt: timestamp("updated_at")
 			.defaultNow()
@@ -27,16 +34,23 @@ export const project = pgTable(
 			.notNull(),
 	},
 	(table) => [
-		// Slugs are unique per owner, not globally: two tenants may both want
+		// Slugs are unique per organization, not globally: two tenants may both want
 		// "billing". This is the constraint @keel/db/errors translates to a 409.
-		uniqueIndex("project_owner_slug_idx").on(table.ownerId, table.slug),
-		index("project_ownerId_idx").on(table.ownerId),
+		uniqueIndex("project_organization_slug_idx").on(
+			table.organizationId,
+			table.slug
+		),
+		index("project_organizationId_idx").on(table.organizationId),
 	]
 );
 
 export const projectRelations = relations(project, ({ one }) => ({
-	owner: one(user, {
-		fields: [project.ownerId],
+	creator: one(user, {
+		fields: [project.createdBy],
 		references: [user.id],
+	}),
+	organization: one(organization, {
+		fields: [project.organizationId],
+		references: [organization.id],
 	}),
 }));

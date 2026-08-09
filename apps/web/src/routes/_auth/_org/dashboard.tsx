@@ -1,6 +1,6 @@
 import { readError } from "@keel/http/envelope";
 import { Button } from "@keel/ui/components/button";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { api } from "@/lib/api";
 
 /**
@@ -15,8 +15,12 @@ import { api } from "@/lib/api";
  * The failure body is a separate concern: it is produced by `app.onError`, which
  * sits outside any route definition, so the client cannot infer it. That is what
  * `@keel/http/envelope` is for — one shared shape, zod only, no server imports.
+ *
+ * Nothing here passes an organization: the tenant comes from the session cookie
+ * and is applied server-side. A client that could name its own tenant would be a
+ * client that could name someone else's.
  */
-export const Route = createFileRoute("/_auth/dashboard")({
+export const Route = createFileRoute("/_auth/_org/dashboard")({
 	component: RouteComponent,
 	loader: async () => {
 		// `limit` is required by the type because the endpoint declares it. That is
@@ -33,14 +37,21 @@ export const Route = createFileRoute("/_auth/dashboard")({
 });
 
 function RouteComponent() {
-	const { user } = Route.useRouteContext();
+	const { organization, user } = Route.useRouteContext();
 	const { data: projects, meta } = Route.useLoaderData();
 	const router = useRouter();
 
 	return (
 		<div className="space-y-4 p-6">
-			<h1 className="font-bold text-2xl">Dashboard</h1>
-			<p>Welcome {user.name}</p>
+			<div className="flex items-center justify-between">
+				<div>
+					<h1 className="font-bold text-2xl">{organization.name}</h1>
+					<p className="text-muted-foreground">Welcome {user.name}</p>
+				</div>
+				<Link to="/settings/members">
+					<Button variant="outline">Members</Button>
+				</Link>
+			</div>
 
 			{projects.length === 0 ? (
 				<p className="text-muted-foreground">No projects yet.</p>

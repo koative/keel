@@ -1,36 +1,29 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { parseError } from "evlog";
 import {
-	ACTOR,
 	type FakeLog,
 	type FakeStore,
+	fakeContext,
 	fakeLog,
 	fakeStore,
-	OTHER_ACTOR,
 	projectRow,
 } from "./projects.fixtures";
-import {
-	createProject,
-	deleteProject,
-	getProject,
-	listProjects,
-	type ProjectContext,
-} from "./projects.service";
+import { createProject, getProject, listProjects } from "./projects.service";
+
+/**
+ * Paging, normalisation and not-found behaviour. The tenancy rules the same
+ * calls enforce are in `projects.service.tenancy.test.ts`, which seeds two
+ * organizations where these tests only ever need one.
+ */
 
 let store: FakeStore;
 let logger: FakeLog;
-const ctx = (): ProjectContext => ({
-	actorId: ACTOR,
-	log: logger.log,
-	repository: store.store,
-});
+const ctx = () => fakeContext(store, logger);
 
 beforeEach(() => {
 	store = fakeStore();
 	logger = fakeLog();
 });
-
-const PAGE = { cursor: null, limit: 25 };
 
 /** Distinct timestamps, newest last, so the expected order is unambiguous. */
 const rows = (count: number) =>
@@ -42,18 +35,6 @@ const rows = (count: number) =>
 	);
 
 describe("list", () => {
-	it("scopes the query to the actor, never to a caller-supplied owner", async () => {
-		store = fakeStore([
-			projectRow({ id: "mine" }),
-			projectRow({ id: "theirs", ownerId: OTHER_ACTOR }),
-		]);
-
-		const found = await listProjects(PAGE, ctx());
-
-		expect(store.calls.listedFor).toEqual([ACTOR]);
-		expect(found.items.map((item) => item.id)).toEqual(["mine"]);
-	});
-
 	it("returns at most the requested limit, never the probe row", async () => {
 		store = fakeStore(rows(5));
 
@@ -104,17 +85,6 @@ describe("list", () => {
 });
 
 describe("create", () => {
-	it("stamps the actor as owner", async () => {
-		await createProject(
-			{ description: null, name: "Billing", slug: "billing" },
-			ctx()
-		);
-
-		expect(store.calls.inserted).toEqual([
-			{ description: null, name: "Billing", ownerId: ACTOR, slug: "billing" },
-		]);
-	});
-
 	it.each([
 		["My-Project", "my-project"],
 		["  billing  ", "billing"],
@@ -142,10 +112,10 @@ describe("create", () => {
 });
 
 describe("get", () => {
-	it("returns the actor's own project", async () => {
-		store = fakeStore([projectRow({ id: "mine" })]);
+	it("returns a project from the active organization", async () => {
+		store = fakeStore([projectRow({ id: "ours" })]);
 
-		expect((await getProject("mine", ctx())).id).toBe("mine");
+		expect((await getProject("ours", ctx())).id).toBe("ours");
 	});
 
 	it("reports a missing project as a 404", async () => {
@@ -156,38 +126,5 @@ describe("get", () => {
 
 		expect(parsed.status).toBe(404);
 		expect(parsed.message).toBe("Project not found");
-	});
-
-	// A 403 here would confirm the id exists, which is enough to walk another
-	// tenant's project ids one guess at a time.
-	it("reports another tenant's project as missing, not forbidden", async () => {
-		store = fakeStore([projectRow({ id: "theirs", ownerId: OTHER_ACTOR })]);
-
-		const thrown = await getProject("theirs", ctx()).catch(
-			(error: unknown) => error
-		);
-
-		expect(parseError(thrown).status).toBe(404);
-	});
-});
-
-describe("remove", () => {
-	it("deletes the actor's own project", async () => {
-		store = fakeStore([projectRow({ id: "mine" })]);
-
-		await deleteProject("mine", ctx());
-
-		expect(store.calls.deleted).toEqual(["mine"]);
-	});
-
-	it("refuses to delete another tenant's project", async () => {
-		store = fakeStore([projectRow({ id: "theirs", ownerId: OTHER_ACTOR })]);
-
-		const thrown = await deleteProject("theirs", ctx()).catch(
-			(error: unknown) => error
-		);
-
-		expect(parseError(thrown).status).toBe(404);
-		expect(store.calls.deleted).toEqual([]);
 	});
 });

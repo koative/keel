@@ -29,13 +29,25 @@ import type {
 const contextOf = (c: Context<AppEnv>): ProjectContext => ({
 	actorId: c.get("actorId"),
 	log: c.get("log"),
+	organizationId: c.get("organizationId"),
 	repository: projectStore,
 });
 
-/** The internal surface returns the row as-is, with timestamps serialised. */
+/**
+ * The internal surface returns the row, with timestamps serialised.
+ *
+ * Field by field rather than a spread: the stored row carries `organizationId`
+ * at runtime even though the service's `Project` does not declare it, so a
+ * spread would publish the tenancy key that the type says is not there. It is
+ * also redundant — the guard already scoped the caller to that organization.
+ */
 const present = (item: Project): ProjectResponse => ({
-	...item,
 	createdAt: item.createdAt.toISOString(),
+	createdBy: item.createdBy,
+	description: item.description,
+	id: item.id,
+	name: item.name,
+	slug: item.slug,
 	updatedAt: item.updatedAt.toISOString(),
 });
 

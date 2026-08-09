@@ -56,10 +56,15 @@ export function createClient(): TestClient {
 
 /**
  * Signs a fresh user up through Better Auth and returns the cookie a browser
- * would send back. Route tests use the real flow rather than a stubbed session,
- * so the guard they exercise is the one that runs in production.
+ * would send back, with no organization attached. Route tests use the real flow
+ * rather than a stubbed session, so the guard they exercise is the one that runs
+ * in production.
+ *
+ * This is the state a user is in between signing up and onboarding: authenticated
+ * but with no active organization, which every tenant-scoped route must answer
+ * with a 403 rather than a 401 or an empty list.
  */
-export async function signUp(): Promise<string> {
+export async function signUpWithoutOrganization(): Promise<string> {
 	const email = `${crypto.randomUUID()}@keel.test`;
 	const response = await app.request("/api/auth/sign-up/email", {
 		body: JSON.stringify({
@@ -79,4 +84,32 @@ export async function signUp(): Promise<string> {
 	}
 
 	return setCookie.split(";")[0] ?? "";
+}
+
+/**
+ * The same, onboarded: a signed-up user who owns one organization and has it
+ * active. This is what a tenant-scoped route test wants.
+ *
+ * `organization/create` sets the active organization on the existing session row,
+ * so the cookie already held stays valid and simply starts resolving to a tenant.
+ * Two calls therefore give two users in two different organizations, which is
+ * what the cross-tenant tests need.
+ */
+export async function signUp(): Promise<string> {
+	const cookie = await signUpWithoutOrganization();
+	const created = await app.request("/api/auth/organization/create", {
+		// The slug column is unique across the whole table and nothing reads it
+		// back, so a UUID is the cheapest value that cannot collide between suites.
+		body: JSON.stringify({ name: "Test Org", slug: crypto.randomUUID() }),
+		headers: { "Content-Type": "application/json", Cookie: cookie },
+		method: "POST",
+	});
+
+	if (!created.ok) {
+		throw new Error(
+			`organization/create failed (status ${created.status}): ${await created.text()}`
+		);
+	}
+
+	return cookie;
 }

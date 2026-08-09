@@ -33,14 +33,22 @@ const wireTimestamps = {
 	updatedAt: z.iso.datetime(),
 };
 
-/** Every column, with timestamps in their wire form. */
+/**
+ * Every column the internal API may see, with timestamps in their wire form.
+ *
+ * `organizationId` is picked out deliberately. Every row in a response already
+ * belongs to the caller's active organization — the guard put it there — so
+ * repeating it on each item is noise the frontend would have to ignore. It is
+ * absent, not forgotten. `createdBy` is here because "who added this" is
+ * something a member list can render, unlike the tenancy key.
+ */
 export const projectFields = row
 	.pick({
 		createdAt: true,
+		createdBy: true,
 		description: true,
 		id: true,
 		name: true,
-		ownerId: true,
 		slug: true,
 		updatedAt: true,
 	})

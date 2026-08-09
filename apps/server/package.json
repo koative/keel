@@ -16,6 +16,7 @@
     "@hono/zod-validator": "catalog:",
     "@keel/auth": "workspace:*",
     "@keel/contracts": "workspace:*",
+    "@keel/crypto": "workspace:*",
     "@keel/db": "workspace:*",
     "@keel/env": "workspace:*",
     "@keel/http": "workspace:*",

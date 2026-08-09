@@ -1,6 +1,11 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { skipNotice, testDbReady } from "../../../../test-db";
-import { createClient, type Envelope, signUp } from "../../../../test-http";
+import {
+	createClient,
+	type Envelope,
+	signUp,
+	signUpWithoutOrganization,
+} from "../../../../test-http";
 import type { ProjectResponse } from "../internal/projects.schema";
 import { type ProjectV1, projectV1Schema } from "./projects.v1.schema";
 
@@ -40,6 +45,15 @@ describe.skipIf(!ready)("v1 project routes", () => {
 			"slug",
 		]);
 		expect(projectV1Schema.safeParse(data).success).toBe(true);
+	});
+
+	// The 403 this surface publishes is real, not decorative: the guard is mounted
+	// here as well as on /api, and an integration that has not onboarded gets it.
+	it("refuses a member with no active organization with a 403", async () => {
+		const onboarding = createClient();
+		onboarding.cookie = await signUpWithoutOrganization();
+
+		expect((await onboarding.request("/v1/projects")).status).toBe(403);
 	});
 
 	it("refuses the slug spelling /api accepts", async () => {

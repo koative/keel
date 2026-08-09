@@ -25,6 +25,18 @@ export const user = pgTable("user", {
 export const session = pgTable(
 	"session",
 	{
+		/**
+		 * Added to `session` by the organization plugin, which is why it lives here
+		 * and not in `schema/organization.ts`. It carries no foreign key: upstream
+		 * declares the field with no reference, so a deleted organization leaves the
+		 * id dangling and the plugin's own membership check is what rejects it. A FK
+		 * would also point this module at `./organization`, which already imports
+		 * `user` from here.
+		 *
+		 * `input: false` upstream — a client can never set it directly, only through
+		 * `setActive()` or the session-create hook in @keel/auth.
+		 */
+		activeOrganizationId: text("active_organization_id"),
 		createdAt: timestamp("created_at").defaultNow().notNull(),
 		expiresAt: timestamp("expires_at").notNull(),
 		id: text("id").primaryKey(),

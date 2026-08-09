@@ -11,7 +11,18 @@ import { ThemeProvider } from "@/components/theme-provider";
 
 import "../index.css";
 
-export type RouterAppContext = Record<string, never>;
+/**
+ * What the router is created with, which is nothing: every value in context is
+ * contributed by a descendant's `beforeLoad` — the session by `_auth`, the
+ * organization by `_auth/_org`.
+ *
+ * `Record<never, never>` and not `Record<string, never>`. The latter carries a
+ * string index signature of `never`, which intersects with every key a child
+ * adds and collapses it back to `never`. That type-checks at the guard that
+ * returns the value and fails at the consumer that reads it, with an error
+ * naming the property rather than the declaration responsible.
+ */
+export type RouterAppContext = Record<never, never>;
 
 export const Route = createRootRouteWithContext<RouterAppContext>()({
 	component: RootComponent,

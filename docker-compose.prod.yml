@@ -70,6 +70,32 @@ services:
     # loop until the schema is half-applied.
     restart: "no"
 
+  # Same image as the server, different command. Background work is a separate
+  # process rather than a timer inside the API for two reasons: a `setInterval`
+  # runs once per replica, so N replicas do the same work N times, and a slow job
+  # would otherwise compete with request handling for the same event loop.
+  #
+  # Scale it with `--scale worker=N`. The claim query takes rows `FOR UPDATE SKIP
+  # LOCKED`, so replicas never hand each other the same job and no coordination
+  # service is needed.
+  worker:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    command: ["bun", "dist/worker.mjs"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment: *app-env
+    # No healthcheck: the worker serves no port, and liveness for a poller is a
+    # different question — an idle queue looks identical to a wedged loop from
+    # outside. Its wide events are the signal.
+    init: true
+    logging: *logging
+    restart: unless-stopped
+
   server:
     build:
       context: .

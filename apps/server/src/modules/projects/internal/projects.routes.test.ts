@@ -1,5 +1,4 @@
 import { beforeAll, describe, expect, it } from "bun:test";
-import { app } from "@/app";
 import { skipNotice, testDbReady } from "../../../../test-db";
 import {
 	createClient,
@@ -17,11 +16,6 @@ if (!ready) {
 const api = createClient();
 const slug = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 
-interface Page<T> {
-	data: T;
-	meta: { nextCursor: string | null };
-}
-
 const createProject = async (payload: Record<string, unknown>) => {
 	const response = await api.post("/api/projects", payload);
 	return {
@@ -30,26 +24,22 @@ const createProject = async (payload: Record<string, unknown>) => {
 	};
 };
 
+interface Page<T> {
+	data: T;
+	meta: { nextCursor: string | null };
+}
+
 /**
  * End to end through the real stack — CORS, wide event, auth guard, validator,
  * handler, service, repository, Postgres — driven by `app.request()` with no
  * socket. The session comes from Better Auth's own sign-up flow.
+ *
+ * Who may reach these routes at all, and what one organization can see of
+ * another's, is in `projects.routes.tenancy.test.ts`.
  */
 describe.skipIf(!ready)("internal project routes", () => {
 	beforeAll(async () => {
 		api.cookie = await signUp();
-	});
-
-	it("rejects an anonymous request with the shared envelope", async () => {
-		const response = await app.request("/api/projects");
-		const body = await api.body<ErrorEnvelope>(response);
-
-		expect(response.status).toBe(401);
-		expect(body.error).toMatchObject({
-			code: "UNAUTHORIZED",
-			message: "Authentication required",
-		});
-		expect(body.error.requestId).toBeString();
 	});
 
 	it("creates and reads back the rich internal shape", async () => {
@@ -66,9 +56,12 @@ describe.skipIf(!ready)("internal project routes", () => {
 			name: "Billing",
 			slug: name,
 		});
-		// Fields the public contract deliberately omits.
-		expect(data.ownerId).toBeString();
+		// Fields the public contract deliberately omits — and one it must never
+		// carry: the caller is already scoped to a single organization, so the
+		// tenant id on each item would be noise the frontend has to ignore.
+		expect(data.createdBy).toBeString();
 		expect(data.updatedAt).toBeString();
+		expect(data).not.toHaveProperty("organizationId");
 
 		const readBack = await api.request(`/api/projects/${data.id}`);
 		expect(readBack.status).toBe(200);
@@ -120,17 +113,6 @@ describe.skipIf(!ready)("internal project routes", () => {
 		expect(deleted.status).toBe(204);
 		expect(await deleted.text()).toBe("");
 		expect((await api.request(`/api/projects/${data.id}`)).status).toBe(404);
-	});
-
-	it("hides another tenant's project behind a 404", async () => {
-		const { data } = await createProject({ name: "Mine", slug: slug("mine") });
-
-		const intruder = createClient();
-		intruder.cookie = await signUp();
-
-		expect((await intruder.request(`/api/projects/${data.id}`)).status).toBe(
-			404
-		);
 	});
 
 	// A bad limit or a hand-written cursor is a client mistake. Each of these

@@ -51,37 +51,54 @@ import type { LogPort } from "@/lib/log";
  * The domain model. Declared here rather than derived from the Drizzle row: this
  * file may not import @keel/db, which is what keeps a schema change from silently
  * rewriting the business rules.
+ *
+ * No \`organizationId\` here on purpose. The row has one; nothing in this file may
+ * compare it, because tenancy is a WHERE clause in the repository and a field
+ * here would invite a check that can be forgotten. \`createdBy\` is display data
+ * and nullable: a departing member does not take the organization's work.
  */
 export interface ${singular} {
 	createdAt: Date;
+	createdBy: string | null;
 	id: string;
-	ownerId: string;
 }
 
-/** The persistence this service needs, and nothing more. */
+/**
+ * The persistence this service needs, and nothing more. Every member takes the
+ * organization, so a query that forgot the tenant is a type error.
+ */
 export interface ${singular}Store {
-	findById: (id: string) => Promise<${singular} | undefined>;
-	listByOwner: (ownerId: string) => Promise<${singular}[]>;
+	findById: (id: string, organizationId: string) => Promise<${singular} | undefined>;
+	listByOrganization: (organizationId: string) => Promise<${singular}[]>;
 }
 
-/** Dependencies arrive in the signature so a unit test needs no database. */
+/**
+ * Dependencies arrive in the signature so a unit test needs no database.
+ *
+ * \`organizationId\` is the tenant every query is scoped to; \`actorId\` is only ever
+ * recorded, never used to decide what may be seen. A single-user account is an
+ * organization with one member, not a second code path.
+ */
 export interface ${singular}Context {
 	actorId: string;
 	log: LogPort;
+	organizationId: string;
 	repository: ${singular}Store;
 }
 
 export async function list${pascal}(ctx: ${singular}Context): Promise<${singular}[]> {
-	return await ctx.repository.listByOwner(ctx.actorId);
+	return await ctx.repository.listByOrganization(ctx.organizationId);
 }
 
 /**
- * A resource owned by somebody else is reported as missing, not as forbidden: a
+ * A resource in another organization is reported as missing, not as forbidden: a
  * 403 confirms the id exists, which is enough to enumerate another tenant's data.
+ * There is no ownership comparison here — the store was asked for a row in this
+ * organization, so "someone else's" and "absent" arrive as the same undefined.
  */
 export async function get${singular}(id: string, ctx: ${singular}Context): Promise<${singular}> {
-	const found = await ctx.repository.findById(id);
-	if (!found || found.ownerId !== ctx.actorId) {
+	const found = await ctx.repository.findById(id, ctx.organizationId);
+	if (!found) {
 		throw notFound("${singular}");
 	}
 
@@ -95,17 +112,21 @@ export async function get${singular}(id: string, ctx: ${singular}Context): Promi
 // service's domain type; annotating would mean importing the service and
 // inverting the dependency. The structural check happens where the handler
 // assembles the context.
+//
+// Every statement must filter on organizationId in the same and(...) as the id.
+// Tenancy that lives in a WHERE clause cannot be skipped by a caller, and it is
+// what makes the service's 404 the truth rather than a disguise.
 
-export function listByOwner(_ownerId: string): Promise<never[]> {
+export function listByOrganization(_organizationId: string): Promise<never[]> {
 	${UNIMPLEMENTED}
 }
 
-export function findById(_id: string): Promise<undefined> {
+export function findById(_id: string, _organizationId: string): Promise<undefined> {
 	${UNIMPLEMENTED}
 }
 
 /** The assembled store the handlers inject. */
-export const ${camel}Store = { findById, listByOwner };
+export const ${camel}Store = { findById, listByOrganization };
 `,
 
 	[`${dir}/${name}.fixtures.ts`]: `import type { LogPort } from "@/lib/log";
@@ -114,21 +135,40 @@ import type { ${singular}, ${singular}Store } from "./${name}.service";
 /** Test doubles for the service's two injected dependencies. */
 
 export const ACTOR = "actor-1";
+export const ORGANIZATION = "org-1";
+export const OTHER_ORGANIZATION = "org-2";
 
-export const ${camel}Row = (overrides: Partial<${singular}> = {}): ${singular} => ({
+/**
+ * A stored row, carrying the tenant the service's domain type deliberately does
+ * not. Seeding two organizations is how the fake reproduces the repository's
+ * WHERE clause, and therefore how a service test can show that another tenant's
+ * row is invisible rather than merely refused.
+ */
+export interface Seed${singular} extends ${singular} {
+	organizationId: string;
+}
+
+export const ${camel}Row = (overrides: Partial<Seed${singular}> = {}): Seed${singular} => ({
 	createdAt: new Date("2026-01-01T00:00:00.000Z"),
+	createdBy: ACTOR,
 	id: "r1",
-	ownerId: ACTOR,
+	organizationId: ORGANIZATION,
 	...overrides,
 });
 
-export function fakeStore(seed: ${singular}[] = []): ${singular}Store {
+export function fakeStore(seed: Seed${singular}[] = []): ${singular}Store {
 	return {
-		findById(id) {
-			return Promise.resolve(seed.find((item) => item.id === id));
+		findById(id, organizationId) {
+			return Promise.resolve(
+				seed.find(
+					(item) => item.id === id && item.organizationId === organizationId
+				)
+			);
 		},
-		listByOwner(ownerId) {
-			return Promise.resolve(seed.filter((item) => item.ownerId === ownerId));
+		listByOrganization(organizationId) {
+			return Promise.resolve(
+				seed.filter((item) => item.organizationId === organizationId)
+			);
 		},
 	};
 }
@@ -145,24 +185,34 @@ export function fakeLog(): LogPort {
 
 	[`${dir}/${name}.service.test.ts`]: `import { describe, expect, it } from "bun:test";
 import { parseError } from "evlog";
-import { ACTOR, fakeLog, fakeStore, ${camel}Row } from "./${name}.fixtures";
+import {
+	ACTOR,
+	fakeLog,
+	fakeStore,
+	ORGANIZATION,
+	OTHER_ORGANIZATION,
+	${camel}Row,
+} from "./${name}.fixtures";
 import { get${singular}, list${pascal}, type ${singular}Context } from "./${name}.service";
 
 const ctx = (seed = [${camel}Row()]): ${singular}Context => ({
 	actorId: ACTOR,
 	log: fakeLog(),
+	organizationId: ORGANIZATION,
 	repository: fakeStore(seed),
 });
 
 describe("${camel} service", () => {
-	it("lists only the actor's rows", async () => {
-		const found = await list${pascal}(ctx([${camel}Row({ id: "mine" }), ${camel}Row({ id: "theirs", ownerId: "other" })]));
+	it("lists only the active organization's rows", async () => {
+		const found = await list${pascal}(ctx([${camel}Row({ id: "ours" }), ${camel}Row({ id: "theirs", organizationId: OTHER_ORGANIZATION })]));
 
-		expect(found.map((item) => item.id)).toEqual(["mine"]);
+		expect(found.map((item) => item.id)).toEqual(["ours"]);
 	});
 
-	it("reports another tenant's row as missing, not forbidden", async () => {
-		const thrown = await get${singular}("theirs", ctx([${camel}Row({ id: "theirs", ownerId: "other" })])).catch(
+	// A 403 would confirm the id exists, which is enough to walk another tenant's
+	// ids one guess at a time.
+	it("reports another organization's row as missing, not forbidden", async () => {
+		const thrown = await get${singular}("theirs", ctx([${camel}Row({ id: "theirs", organizationId: OTHER_ORGANIZATION })])).catch(
 			(error: unknown) => error
 		);
 
@@ -188,8 +238,8 @@ export const ${camel}IdSchema = z.object({
 
 export const ${camel}Schema = z.object({
 	createdAt: z.iso.datetime(),
+	createdBy: z.string().nullable(),
 	id: z.uuid(),
-	ownerId: z.string(),
 });
 
 export type ${singular}Response = z.infer<typeof ${camel}Schema>;
@@ -209,13 +259,18 @@ import type { ${singular}Response } from "./${name}.schema";
 const contextOf = (c: Context<AppEnv>): ${singular}Context => ({
 	actorId: c.get("actorId"),
 	log: c.get("log"),
+	organizationId: c.get("organizationId"),
 	repository: ${camel}Store,
 });
 
+// Field by field rather than a spread: the stored row carries organizationId at
+// runtime even though the domain type does not declare it, so a spread would
+// publish the tenancy key. It is redundant anyway — the guard already scoped the
+// caller to that organization.
 const present = (item: ${singular}): ${singular}Response => ({
 	createdAt: item.createdAt.toISOString(),
+	createdBy: item.createdBy,
 	id: item.id,
-	ownerId: item.ownerId,
 });
 
 type IdContext = Context<AppEnv, string, { in: { param: { id: string } }; out: { param: { id: string } } }>;
@@ -233,7 +288,7 @@ export async function get(c: IdContext) {
 
 	[`${dir}/internal/${name}.routes.ts`]: `import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import { requireUser } from "@/lib/auth";
+import { requireOrg, requireUser } from "@/lib/auth";
 import type { AppEnv } from "@/lib/context";
 import { rejectInvalid } from "@/lib/validate";
 import { get, list } from "./${name}.handlers";
@@ -244,9 +299,15 @@ import { ${camel}IdSchema } from "./${name}.schema";
  *
  * Routes are chained so the app type carries every endpoint, which is what makes
  * the typed client possible.
+ *
+ * \`requireOrg\` follows \`requireUser\` and never precedes it: it only asserts on
+ * what the session already resolved, so a signed-in member with no active
+ * organization gets a 403 the SPA can route to onboarding, while an anonymous
+ * caller still gets the 401 that tells it to sign in.
  */
 export const internal${pascal}Routes = new Hono<AppEnv>()
 	.use(requireUser)
+	.use(requireOrg)
 	.get("/", list)
 	.get("/:id", zValidator("param", ${camel}IdSchema, rejectInvalid), get);
 `,
@@ -298,6 +359,7 @@ import type { ${singular}V1 } from "./${name}.v1.schema";
 const contextOf = (c: Context<AppEnv>): ${singular}Context => ({
 	actorId: c.get("actorId"),
 	log: c.get("log"),
+	organizationId: c.get("organizationId"),
 	repository: ${camel}Store,
 });
 
@@ -321,7 +383,7 @@ export const get: RouteHandler<typeof get${singular}Route, AppEnv> = async (c) =
 import { errorSchema } from "@keel/http/envelope";
 import { jsonContent } from "@keel/http/openapi";
 import { status } from "@keel/http/status";
-import { requireUser } from "@/lib/auth";
+import { requireOrg, requireUser } from "@/lib/auth";
 import type { AppEnv } from "@/lib/context";
 import { rejectInvalid } from "@/lib/validate";
 import { get, list } from "./${name}.v1.handlers";
@@ -336,12 +398,19 @@ import { ${camel}IdV1Schema, ${camel}ListV1Schema, ${camel}V1Envelope } from "./
 const TAGS = ["${pascal}"];
 const unauthorized = jsonContent(errorSchema, "No usable credentials");
 
+// Reachable on every operation: the session is valid but no organization is
+// active, so there is no tenant to read or write. Declared rather than left to
+// surprise an integration, and distinct from 404 — the caller is not being told
+// a row is missing, they are being told to pick an organization first.
+const forbidden = jsonContent(errorSchema, "The session has no active organization");
+
 export const list${pascal}Route = createRoute({
 	method: "get",
 	path: "/",
 	responses: {
-		[status.OK]: jsonContent(${camel}ListV1Schema, "The actor's ${name}"),
+		[status.OK]: jsonContent(${camel}ListV1Schema, "The organization's ${name}"),
 		[status.UNAUTHORIZED]: unauthorized,
+		[status.FORBIDDEN]: forbidden,
 	},
 	summary: "List ${name}",
 	tags: TAGS,
@@ -354,7 +423,8 @@ export const get${singular}Route = createRoute({
 	responses: {
 		[status.OK]: jsonContent(${camel}V1Envelope, "The ${singular.toLowerCase()}"),
 		[status.UNAUTHORIZED]: unauthorized,
-		[status.NOT_FOUND]: jsonContent(errorSchema, "No such ${singular.toLowerCase()} for this owner"),
+		[status.FORBIDDEN]: forbidden,
+		[status.NOT_FOUND]: jsonContent(errorSchema, "No such ${singular.toLowerCase()} in this organization"),
 		[status.UNPROCESSABLE_ENTITY]: jsonContent(errorSchema, "The id is not a UUID"),
 	},
 	summary: "Fetch one ${singular.toLowerCase()}",
@@ -366,6 +436,11 @@ const surface = new OpenAPIHono<AppEnv>({ defaultHook: rejectInvalid });
 // Registered as a statement, not in the chain: Hono's \`.use\` returns \`Hono\`, so
 // chaining it would erase \`.openapi\` from the type.
 surface.use(requireUser);
+
+// After \`requireUser\`, which resolved the session it reads. A member without an
+// active organization is refused here, so no handler below ever runs without a
+// tenant to scope its queries to.
+surface.use(requireOrg);
 
 export const public${pascal}RoutesV1 = surface.openapi(list${pascal}Route, list).openapi(get${singular}Route, get);
 `,
@@ -442,9 +517,14 @@ const count = (await Array.fromAsync(written.scan("."))).length;
 console.log(`Created ${count} files in ${dir} and mounted /api/${name}.
 
 Next, in this order:
-  1. packages/db/src/schema/${name}.ts, exported from schema/index.ts
-  2. packages/contracts/src/${name}.ts — derive and .pick() the API's fields
-  3. replace the throwing bodies in ${name}.repository.ts
+  1. packages/db/src/schema/${name}.ts, exported from schema/index.ts. It is
+     org-scoped like every tenant table: organizationId text notNull references
+     organization.id onDelete cascade, createdBy text nullable references user.id
+     onDelete "set null", and any unique index keyed on (organizationId, ...).
+  2. packages/contracts/src/${name}.ts — derive and .pick() the API's fields.
+     Leave organizationId out: the caller is already scoped to one.
+  3. replace the throwing bodies in ${name}.repository.ts, filtering every
+     statement on organizationId in the same and(...) as the id
   4. bun run check
 
 The generated repository throws on purpose: a half-finished module must not look

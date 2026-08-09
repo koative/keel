@@ -54,9 +54,9 @@ const operations: Record<string, Operation> = {
 
 describe("the published v1 contract", () => {
 	it.each([
-		["GET /v1/projects", ["200", "401", "422"]],
-		["POST /v1/projects", ["201", "401", "409", "422"]],
-		["GET /v1/projects/{id}", ["200", "401", "404", "422"]],
+		["GET /v1/projects", ["200", "401", "403", "422"]],
+		["POST /v1/projects", ["201", "401", "403", "409", "422"]],
+		["GET /v1/projects/{id}", ["200", "401", "403", "404", "422"]],
 	])("%s is behind the session and declares its statuses", (name, expected) => {
 		expect(operations[name]?.security).toEqual([{ sessionCookie: [] }]);
 		expect(Object.keys(operations[name]?.responses ?? {})).toEqual(expected);
@@ -137,13 +137,22 @@ describe("the published v1 contract", () => {
 		});
 	});
 
-	// Promising an owner identifier or a mutation timestamp means forever.
-	it.each(["ownerId", "owner_id", "updatedAt", "updated_at", "description"])(
-		"does not leak %s",
-		(field) => {
-			expect(Object.keys(projectV1Schema.shape)).not.toContain(field);
-		}
-	);
+	// Promising an internal identifier or a mutation timestamp means forever. The
+	// tenant id is on the list too: a caller is already scoped to one
+	// organization, so publishing it would freeze a field that says nothing.
+	it.each([
+		"createdBy",
+		"created_by",
+		"organizationId",
+		"organization_id",
+		"ownerId",
+		"owner_id",
+		"updatedAt",
+		"updated_at",
+		"description",
+	])("does not leak %s", (field) => {
+		expect(Object.keys(projectV1Schema.shape)).not.toContain(field);
+	});
 
 	it("accepts exactly name and slug on create, with the published bounds", () => {
 		expect(

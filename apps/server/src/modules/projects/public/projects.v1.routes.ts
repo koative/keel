@@ -6,7 +6,7 @@ import {
 	problemContent,
 } from "@keel/http/openapi";
 import { status } from "@keel/http/status";
-import { requireUser } from "@/lib/auth";
+import { requireOrg, requireUser } from "@/lib/auth";
 import type { AppEnv } from "@/lib/context";
 import { idempotent } from "@/lib/idempotency";
 import { rejectInvalid } from "@/lib/validate";
@@ -35,14 +35,23 @@ const TAGS = ["Projects"];
 // would make a generated SDK look for a content type that never arrives.
 const unauthorized = problemContent(errorSchema, "No usable credentials");
 
-// Every endpoint here is behind `requireUser`. Stated per route rather than as a
-// document-level default so an operation that is ever made anonymous has to say
-// so explicitly instead of inheriting silence.
+// Reachable on every operation: the session is valid but no organization is
+// active, so there is no tenant to read or write. Declared rather than left to
+// surprise an integration, and distinct from 404 — the caller is not being told
+// a project is missing, they are being told to pick an organization first.
+const forbidden = problemContent(
+	errorSchema,
+	"The session has no active organization"
+);
+
+// Every endpoint here is behind `requireUser` and `requireOrg`. Stated per route
+// rather than as a document-level default so an operation that is ever made
+// anonymous has to say so explicitly instead of inheriting silence.
 const SECURITY = [{ sessionCookie: [] }];
 
 export const listProjectsRoute = createRoute({
 	description:
-		"Projects owned by the authenticated actor, newest first. Pass `meta.nextCursor` back as `cursor` for the following page; a null `nextCursor` is the last page.",
+		"Projects belonging to the active organization, newest first. Pass `meta.nextCursor` back as `cursor` for the following page; a null `nextCursor` is the last page.",
 	method: "get",
 	path: "/",
 	request: {
@@ -51,6 +60,7 @@ export const listProjectsRoute = createRoute({
 	responses: {
 		[status.OK]: jsonContent(projectListV1Schema, "One page of projects"),
 		[status.UNAUTHORIZED]: unauthorized,
+		[status.FORBIDDEN]: forbidden,
 		[status.UNPROCESSABLE_ENTITY]: problemContent(
 			errorSchema,
 			"The limit is out of range, or the cursor did not come from us"
@@ -63,7 +73,7 @@ export const listProjectsRoute = createRoute({
 
 export const createProjectRoute = createRoute({
 	description:
-		"Slugs are unique per owner, so two accounts may both use `billing`.",
+		"Slugs are unique per organization, so two organizations may both use `billing`.",
 	method: "post",
 	path: "/",
 	request: {
@@ -72,9 +82,10 @@ export const createProjectRoute = createRoute({
 	responses: {
 		[status.CREATED]: jsonContent(projectV1Envelope, "The created project"),
 		[status.UNAUTHORIZED]: unauthorized,
+		[status.FORBIDDEN]: forbidden,
 		[status.CONFLICT]: problemContent(
 			errorSchema,
-			"This owner already has a project with that slug"
+			"This organization already has a project with that slug"
 		),
 		[status.UNPROCESSABLE_ENTITY]: problemContent(
 			errorSchema,
@@ -88,7 +99,7 @@ export const createProjectRoute = createRoute({
 
 export const getProjectRoute = createRoute({
 	description:
-		"A project owned by another account is reported as missing, not as forbidden.",
+		"A project belonging to another organization is reported as missing, not as forbidden.",
 	method: "get",
 	path: "/{id}",
 	request: {
@@ -97,9 +108,10 @@ export const getProjectRoute = createRoute({
 	responses: {
 		[status.OK]: jsonContent(projectV1Envelope, "The project"),
 		[status.UNAUTHORIZED]: unauthorized,
+		[status.FORBIDDEN]: forbidden,
 		[status.NOT_FOUND]: problemContent(
 			errorSchema,
-			"No such project for this owner"
+			"No such project in this organization"
 		),
 		[status.UNPROCESSABLE_ENTITY]: problemContent(
 			errorSchema,
@@ -120,7 +132,12 @@ const surface = new OpenAPIHono<AppEnv>({ defaultHook: rejectInvalid });
 // nothing to the schema, so nothing is lost by splitting it out.
 surface.use(requireUser);
 
-// After `requireUser`, because a key is scoped to the actor — a global key space
+// After `requireUser`, which resolved the session it reads. A member without an
+// active organization is refused here rather than deeper down, so no handler
+// below ever runs without a tenant to scope its queries to.
+surface.use(requireOrg);
+
+// After both guards, because a key is scoped to the actor — a global key space
 // would let one tenant probe another's. Method-scoped rather than `use`, so a GET
 // is never stored and replayed.
 surface.on("POST", "*", idempotent);

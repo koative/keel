@@ -25,6 +25,7 @@
         "@hono/zod-validator": "catalog:",
         "@keel/auth": "workspace:*",
         "@keel/contracts": "workspace:*",
+        "@keel/crypto": "workspace:*",
         "@keel/db": "workspace:*",
         "@keel/env": "workspace:*",
         "@keel/http": "workspace:*",
@@ -119,6 +120,14 @@
         "drizzle-zod": "catalog:",
         "zod": "catalog:",
       },
+      "devDependencies": {
+        "@keel/config": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/crypto": {
+      "name": "@keel/crypto",
       "devDependencies": {
         "@keel/config": "workspace:*",
         "@types/bun": "catalog:",
@@ -637,6 +646,8 @@
     "@keel/config": ["@keel/config@workspace:packages/config"],
 
     "@keel/contracts": ["@keel/contracts@workspace:packages/contracts"],
+
+    "@keel/crypto": ["@keel/crypto@workspace:packages/crypto"],
 
     "@keel/db": ["@keel/db@workspace:packages/db"],
 

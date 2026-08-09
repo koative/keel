@@ -1,6 +1,7 @@
 import { db } from "@keel/db";
 import { user } from "@keel/db/schema/auth";
-import { sql } from "drizzle-orm";
+import { organization } from "@keel/db/schema/organization";
+import { eq, sql } from "drizzle-orm";
 
 /**
  * Integration tests need a real Postgres, and a developer without Docker running
@@ -36,4 +37,27 @@ export async function seedUser(): Promise<string> {
 		name: "Test Owner",
 	});
 	return id;
+}
+
+/**
+ * The tenant every tenant-scoped row hangs off. Like `seedUser`, each caller gets
+ * a fresh one so suites never contend; `slug` is a UUID because the column is
+ * unique and the value is never read back.
+ */
+export async function seedOrganization(): Promise<string> {
+	const id = crypto.randomUUID();
+	await db.insert(organization).values({
+		id,
+		name: "Test Org",
+		slug: id,
+	});
+	return id;
+}
+
+/**
+ * Removing a member is the event `project.createdBy` is nullable for, so a test
+ * that asserts the organization keeps its work needs to be able to stage it.
+ */
+export async function deleteUser(id: string): Promise<void> {
+	await db.delete(user).where(eq(user.id, id));
 }

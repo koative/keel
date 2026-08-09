@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import { requireUser } from "@/lib/auth";
+import { requireOrg, requireUser } from "@/lib/auth";
 import type { AppEnv } from "@/lib/context";
 import { rejectInvalid } from "@/lib/validate";
 import { create, get, list, remove } from "./projects.handlers";
@@ -19,9 +19,15 @@ import {
  *
  * Routes are chained rather than declared statement by statement so the app type
  * carries every endpoint, which is what makes a typed client possible.
+ *
+ * `requireOrg` follows `requireUser` and never precedes it: it only asserts on
+ * what the session already resolved, so a signed-in member with no active
+ * organization gets a 403 the SPA can route to onboarding, while an anonymous
+ * caller still gets the 401 that tells it to sign in.
  */
 export const internalProjectRoutes = new Hono<AppEnv>()
 	.use(requireUser)
+	.use(requireOrg)
 	.get("/", zValidator("query", projectPageSchema, rejectInvalid), list)
 	.post("/", zValidator("json", createProjectSchema, rejectInvalid), create)
 	.get("/:id", zValidator("param", projectIdSchema, rejectInvalid), get)

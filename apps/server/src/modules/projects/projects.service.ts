@@ -7,13 +7,19 @@ import type { LogPort } from "@/lib/log";
  * keeps a schema change from silently rewriting the business rules. The
  * repository satisfies it structurally, so the mismatch surfaces at the wiring
  * site with a type error.
+ *
+ * `organizationId` is absent on purpose. The row has one, but nothing in this
+ * file may compare it: tenancy is a WHERE clause in the repository, and a field
+ * here would be an invitation to re-check it in a branch that can be forgotten.
+ * `createdBy` is present because it is display data — which member added this —
+ * and is nullable because a departing member does not take the row with them.
  */
 export interface Project {
 	createdAt: Date;
+	createdBy: string | null;
 	description: string | null;
 	id: string;
 	name: string;
-	ownerId: string;
 	slug: string;
 	updatedAt: Date;
 }
@@ -44,12 +50,26 @@ export interface ProjectListing {
 	nextCursor: ProjectCursor | null;
 }
 
-/** The persistence this service needs, and nothing more. */
+/**
+ * The persistence this service needs, and nothing more.
+ *
+ * Every member takes the organization, because every statement is scoped by it.
+ * Making it an argument rather than something the repository reads for itself is
+ * what lets the type checker catch a query that forgot the tenant.
+ */
 export interface ProjectStore {
-	deleteById: (id: string) => Promise<void>;
-	findById: (id: string) => Promise<Project | undefined>;
-	insert: (input: CreateProject & { ownerId: string }) => Promise<Project>;
-	listByOwner: (ownerId: string, page: ProjectPage) => Promise<Project[]>;
+	deleteById: (id: string, organizationId: string) => Promise<void>;
+	findById: (
+		id: string,
+		organizationId: string
+	) => Promise<Project | undefined>;
+	insert: (
+		input: CreateProject & { createdBy: string | null; organizationId: string }
+	) => Promise<Project>;
+	listByOrganization: (
+		organizationId: string,
+		page: ProjectPage
+	) => Promise<Project[]>;
 }
 
 /**
@@ -58,10 +78,15 @@ export interface ProjectStore {
  * This is what lets a service test run with no database and no HTTP server, and
  * it is forced by the layer rules rather than chosen per-service: a file named
  * `*.service.ts` cannot import `hono`, so it cannot read `c.get("log")`.
+ *
+ * `organizationId` is the tenant every query is scoped to; `actorId` is only ever
+ * recorded, never used to decide what may be seen. A single-user account is an
+ * organization with one member, so there is no second code path for it.
  */
 export interface ProjectContext {
 	actorId: string;
 	log: LogPort;
+	organizationId: string;
 	repository: ProjectStore;
 }
 
@@ -73,7 +98,7 @@ export interface ProjectContext {
 const normaliseSlug = (slug: string) => slug.trim().toLowerCase();
 
 /**
- * One page of the actor's projects, newest first.
+ * One page of the organization's projects, newest first.
  *
  * The store is asked for `limit + 1` rows. The extra row is never returned; its
  * mere presence answers "is there another page?" without a second COUNT over
@@ -84,7 +109,10 @@ export async function listProjects(
 	page: ProjectPage,
 	ctx: ProjectContext
 ): Promise<ProjectListing> {
-	const rows = await ctx.repository.listByOwner(ctx.actorId, page);
+	const rows = await ctx.repository.listByOrganization(
+		ctx.organizationId,
+		page
+	);
 	const items = rows.slice(0, page.limit);
 	const last = items.at(-1);
 
@@ -104,7 +132,8 @@ export async function createProject(
 	const slug = normaliseSlug(input.slug);
 	const created = await ctx.repository.insert({
 		...input,
-		ownerId: ctx.actorId,
+		createdBy: ctx.actorId,
+		organizationId: ctx.organizationId,
 		slug,
 	});
 
@@ -113,16 +142,20 @@ export async function createProject(
 }
 
 /**
- * A project owned by somebody else is reported as missing, not as forbidden.
- * A 403 would confirm the id exists, which is enough to enumerate another
- * tenant's projects one guess at a time.
+ * A project belonging to another organization is reported as missing, not as
+ * forbidden. A 403 would confirm the id exists, which is enough to enumerate
+ * another tenant's projects one guess at a time.
+ *
+ * Note there is no ownership comparison here: the store is asked for a row in
+ * this organization, so "belongs to someone else" and "does not exist" arrive
+ * as the same `undefined`, and the safe answer is the only answer available.
  */
 export async function getProject(
 	id: string,
 	ctx: ProjectContext
 ): Promise<Project> {
-	const found = await ctx.repository.findById(id);
-	if (!found || found.ownerId !== ctx.actorId) {
+	const found = await ctx.repository.findById(id, ctx.organizationId);
+	if (!found) {
 		throw notFound("Project");
 	}
 
@@ -134,6 +167,6 @@ export async function deleteProject(
 	ctx: ProjectContext
 ): Promise<void> {
 	const target = await getProject(id, ctx);
-	await ctx.repository.deleteById(target.id);
+	await ctx.repository.deleteById(target.id, ctx.organizationId);
 	ctx.log.set({ project: { deleted: target.id } });
 }

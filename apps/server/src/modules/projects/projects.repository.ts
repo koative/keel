@@ -10,6 +10,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
  * service's `Project`: annotating would mean importing the service, inverting the
  * dependency. Structural checking still catches a drift, at the wiring site in
  * the handlers, which is where the two halves actually meet.
+ *
+ * Every statement below is scoped by `organizationId`, in the same `and(...)` as
+ * the id rather than as a separate check afterwards. Tenancy that lives in a
+ * WHERE clause cannot be forgotten by a caller, and a row belonging to another
+ * organization is simply not there — which is what makes the 404 the service
+ * reports the truth rather than a disguise.
  */
 
 /**
@@ -21,8 +27,8 @@ import { and, desc, eq, sql } from "drizzle-orm";
  * row twice and never sees another. Seeking from the last row actually read is
  * stable under concurrent writes and reads the same number of rows every page.
  */
-export async function listByOwner(
-	ownerId: string,
+export async function listByOrganization(
+	organizationId: string,
 	page: { cursor: { createdAt: Date; id: string } | null; limit: number }
 ) {
 	// `created_at` is compared and ordered truncated to milliseconds because that
@@ -43,24 +49,25 @@ export async function listByOwner(
 	return await db
 		.select()
 		.from(project)
-		.where(and(eq(project.ownerId, ownerId), seek))
+		.where(and(eq(project.organizationId, organizationId), seek))
 		.orderBy(desc(createdAtMs), desc(project.id))
 		.limit(page.limit + 1);
 }
 
-export async function findById(id: string) {
+export async function findById(id: string, organizationId: string) {
 	const [found] = await db
 		.select()
 		.from(project)
-		.where(eq(project.id, id))
+		.where(and(eq(project.id, id), eq(project.organizationId, organizationId)))
 		.limit(1);
 	return found;
 }
 
 export async function insert(input: {
+	createdBy: string | null;
 	description: string | null;
 	name: string;
-	ownerId: string;
+	organizationId: string;
 	slug: string;
 }) {
 	const [created] = await withUniqueConflict(
@@ -75,8 +82,10 @@ export async function insert(input: {
 	return created;
 }
 
-export async function deleteById(id: string) {
-	await db.delete(project).where(eq(project.id, id));
+export async function deleteById(id: string, organizationId: string) {
+	await db
+		.delete(project)
+		.where(and(eq(project.id, id), eq(project.organizationId, organizationId)));
 }
 
 /**
@@ -84,4 +93,9 @@ export async function deleteById(id: string) {
  * service's `ProjectStore` where the two are joined, which is the only place
  * both halves are in scope.
  */
-export const projectStore = { deleteById, findById, insert, listByOwner };
+export const projectStore = {
+	deleteById,
+	findById,
+	insert,
+	listByOrganization,
+};

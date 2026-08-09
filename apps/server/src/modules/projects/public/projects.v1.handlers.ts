@@ -33,6 +33,7 @@ import type { ProjectV1 } from "./projects.v1.schema";
 const contextOf = (c: Context<AppEnv>): ProjectContext => ({
 	actorId: c.get("actorId"),
 	log: c.get("log"),
+	organizationId: c.get("organizationId"),
 	repository: projectStore,
 });
 

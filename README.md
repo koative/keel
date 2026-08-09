@@ -101,6 +101,55 @@ rolling deploy does not drop work. `/health` is liveness and `/ready` checks
 Postgres; the container healthcheck polls `/ready`, because a process that cannot
 reach its database should leave the load balancer rather than be restarted.
 
+## Tenancy
+
+Everything a tenant owns belongs to an **organization**, never directly to a user.
+A solo account is an organization with one member — one data row, not a second code
+path, which is why there is no per-user ownership branch to keep in sync.
+
+`requireUser` resolves the session once and `requireOrg` narrows it. The failure
+modes are distinct on purpose: no session is a `401`, a session with no active
+organization is a `403` so the SPA can route to onboarding, and a resource that
+exists but belongs to another organization is a **`404`** — confirming that another
+tenant's row exists is itself a leak. Tenancy is filtered in the repository, in the
+same `and(...)` as the id, never checked in a service.
+
+Better Auth's organization plugin owns `organization`, `member` and `invitation`.
+There is no mailer, so an invitation is delivered by copying its link out of the
+members page. That is why invitations last 7 days instead of the plugin's 48 hours,
+and why re-inviting an address cancels the earlier one — you cannot un-paste a link,
+so cancelling the invitation is the only revocation there is.
+
+## Background work
+
+```bash
+bun dist/worker.mjs          # or: docker compose up worker
+```
+
+A `job` table in Postgres, claimed with `FOR UPDATE SKIP LOCKED`, so scaling is
+`--scale worker=N` with no coordination service and no second datastore to back up.
+Failures retry with exponential backoff until `maxAttempts`, then stop — a poison
+message must not spin forever.
+
+The load-bearing detail is one index: `dedupe_key` is unique only
+`WHERE status = 'pending'`. Enqueue collapses duplicate pending work, and the same
+key becomes usable again once the earlier job settles. A debounce and a mutex in one
+index, with no application-side locking.
+
+Work belongs here rather than in a request whenever it can outlive one. Webhook
+receivers are the clearest case: `apps/server/src/lib/webhook.ts` verifies the
+signature over the **raw bytes** — a body that was parsed and re-stringified
+produces a different digest and rejects every event — then the receiver persists the
+payload, enqueues, and returns 200. Providers retry within seconds, and an LLM or
+outbound API call does not fit inside that window.
+
+## Secrets at rest
+
+`@keel/crypto/seal` is AES-256-GCM with a versioned envelope, `v1.<iv>.<tag>.<ct>`.
+The version prefix is the point: a key rotation or an algorithm change is detectable
+per row, so migrating off one does not need a flag day. Set `SECRETS_ENCRYPTION_KEY`
+to `openssl rand -base64 32` before storing a third-party token.
+
 ## Adding a module
 
 ```bash

@@ -1,8 +1,10 @@
 import { db } from "@keel/db";
-import * as schema from "@keel/db/schema/auth";
+import * as authSchema from "@keel/db/schema/auth";
+import * as organizationSchema from "@keel/db/schema/organization";
 import { env } from "@keel/env/server";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { organization } from "better-auth/plugins";
 
 const isProduction = env.NODE_ENV === "production";
 
@@ -74,12 +76,95 @@ export function createAuth() {
 		baseURL: env.BETTER_AUTH_URL,
 		database: drizzleAdapter(db, {
 			provider: "pg",
-			schema,
+			// Both namespaces, not `@keel/db/schema`: the adapter resolves models by
+			// key, so handing it the whole schema index would also expose `project`,
+			// `job` and `idempotencyKey` as models Better Auth believes it owns.
+			// These two modules are exactly the tables it does own.
+			schema: { ...authSchema, ...organizationSchema },
 		}),
+		/**
+		 * Seeds `activeOrganizationId` on every new session from the user's earliest
+		 * membership.
+		 *
+		 * Better Auth leaves the field null until the client calls `setActive()`.
+		 * Every tenant-scoped route in this app is behind `requireOrg`, which 403s on
+		 * a null value, so without this hook a correct sign-in lands in a state where
+		 * the entire API is forbidden until the SPA makes an extra round trip — and
+		 * every route's first request after a sign-in is a wasted one.
+		 *
+		 * Better Auth's own adapter rather than Drizzle: the hook runs inside Better
+		 * Auth's model namespace, so `"member"` here resolves through whatever
+		 * `modelName` mapping is configured, and a rename made in plugin options
+		 * cannot desynchronise from this lookup.
+		 */
+		databaseHooks: {
+			session: {
+				create: {
+					before: async (session, ctx) => {
+						/**
+						 * The sort is load-bearing, not cosmetic. `limit: 1` without an
+						 * ORDER BY lets Postgres return whichever row it reaches first,
+						 * which is a function of physical layout and changes as the table
+						 * is written to. A user who belongs to two organizations would
+						 * then be dropped into a different one on different sign-ins,
+						 * silently, and the bug reproduces only on those accounts. Do not
+						 * remove it. `member_userId_idx` in @keel/db covers this read.
+						 */
+						const memberships = await ctx?.context.adapter.findMany<{
+							organizationId: string;
+						}>({
+							limit: 1,
+							model: "member",
+							sortBy: { direction: "asc", field: "createdAt" },
+							where: [{ field: "userId", value: session.userId }],
+						});
+
+						const organizationId = memberships?.[0]?.organizationId;
+						if (!organizationId) {
+							// A user with no membership yet — mid sign-up, or an account whose
+							// only organization was deleted. Leave the field null and let
+							// `requireOrg` route them to onboarding.
+							return;
+						}
+
+						return {
+							data: { ...session, activeOrganizationId: organizationId },
+						};
+					},
+				},
+			},
+		},
 		emailAndPassword: {
 			enabled: true,
 		},
-		plugins: [],
+		plugins: [
+			organization({
+				/**
+				 * Left at the default `false`, re-inviting an address leaves every
+				 * earlier invitation live. Two consequences, and the second is the
+				 * serious one: the members page shows the same person queued three
+				 * times, and every link that was ever pasted anywhere still redeems.
+				 * You cannot un-paste a link — cancelling the invitation is the only
+				 * revocation there is, and this is what makes re-inviting perform it.
+				 */
+				cancelPendingInvitationsOnReInvite: true,
+				/**
+				 * Seven days, against the plugin's 48-hour default.
+				 *
+				 * 48 hours assumes an invitation email lands in an inbox seconds after
+				 * it is sent. There is no mailer in keel, so an invitation travels out
+				 * of band: somebody copies the link and pastes it into a chat, and it
+				 * waits for a human to read that chat. Two days is hostile to that, and
+				 * an expired invitation is indistinguishable from a broken one.
+				 *
+				 * This should come back down toward the default once a mailer exists —
+				 * a longer window is a longer period in which a leaked link is still
+				 * redeemable, and that cost is only worth paying while delivery is
+				 * manual.
+				 */
+				invitationExpiresIn: 7 * 24 * 60 * 60,
+			}),
+		],
 		/**
 		 * Enabled unconditionally rather than left to the `enabled: isProduction`
 		 * default: a limit that only exists in production is a limit nobody has

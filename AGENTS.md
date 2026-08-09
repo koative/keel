@@ -18,6 +18,7 @@ Bun + Hono + Drizzle monorepo. Two API surfaces over one domain layer.
 - `packages/contracts` — Zod schemas derived from the Drizzle tables.
 - `packages/api-client` — `hc<AppType>` over a prebuilt declaration bundle.
 - `packages/{db,auth,env,ui,config}` — Drizzle, Better Auth, validated env, shadcn, tsconfig.
+- `packages/crypto` — `@keel/crypto/seal` (AES-256-GCM, versioned envelope), `@keel/crypto/equals`.
 
 ## Layers
 
@@ -29,6 +30,22 @@ the database. A module's internals are private — cross-module traffic goes thr
 `/api/*` moves with the frontend: unversioned, typed client, absent from the spec.
 `/v1/*` is the customer contract: versioned, frozen, and the only thing at `/doc`.
 They share one service and one repository, and each has its own Zod schema.
+
+## Tenancy
+
+Organization-only. Nothing belongs to a user: `requireUser` resolves the session
+once, `requireOrg` narrows it, and repositories filter `organizationId` in the same
+`and(...)` as the id. No session is 401, no active organization is 403, another
+organization's row is **404** — never 403, because confirming it exists is the leak.
+A service never checks tenancy; it has no field to compare.
+
+## Background work
+
+Anything that can outlive a request goes in the `job` table and runs in
+`dist/worker.mjs`, never in a `setInterval` inside the API — a timer runs once per
+replica. Enqueue with a `dedupeKey` to collapse duplicate pending work. Webhook
+receivers verify over `await c.req.arrayBuffer()`, persist, enqueue, return 200; a
+re-stringified body produces a different digest and rejects every event.
 
 ## Rules
 

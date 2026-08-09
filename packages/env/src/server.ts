@@ -41,6 +41,20 @@ export const env = createEnv({
 		/** `key=value` pairs, comma separated. For a collector that wants a token. */
 		OTLP_HEADERS: z.string().optional(),
 		/**
+		 * Base64 of 32 random bytes — `openssl rand -base64 32`. Keys the
+		 * AES-256-GCM cipher in `@keel/crypto/seal` that encrypts third-party
+		 * secrets at rest.
+		 *
+		 * Optional because a deployment that stores no such secrets needs none;
+		 * the code path that reads it fails loudly when it is missing rather than
+		 * writing plaintext.
+		 *
+		 * Rotating it makes every existing `v1.` row unreadable. That is what the
+		 * version prefix is for: a rotation ships a new version tag alongside the
+		 * old key so both can be read while the rows are rewritten.
+		 */
+		SECRETS_ENCRYPTION_KEY: z.string().optional(),
+		/**
 		 * Ceiling for a single statement and for an idle open transaction, in ms.
 		 *
 		 * Bounds the blast radius of one bad plan: without it a runaway query keeps
@@ -80,6 +94,23 @@ export const env = createEnv({
 			.min(1)
 			.optional()
 			.transform((value) => value?.split(",").map((entry) => entry.trim())),
+		/**
+		 * How many jobs one worker claims per poll.
+		 *
+		 * A batch is processed one job at a time, so this is a ceiling on how long
+		 * a worker can go without noticing a shutdown signal — not a concurrency
+		 * setting. Add workers to go faster.
+		 */
+		WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(1000).default(10),
+		/**
+		 * Idle wait between polls, in ms. This is the queue's worst-case latency
+		 * for a job that becomes due just after a poll found nothing.
+		 *
+		 * Every worker issues one query per interval whether or not there is work,
+		 * so lowering it buys latency at the cost of a constant load that scales
+		 * with the number of replicas.
+		 */
+		WORKER_POLL_MS: z.coerce.number().int().min(50).default(1000),
 	},
 	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
 });

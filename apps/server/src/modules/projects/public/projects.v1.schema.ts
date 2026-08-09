@@ -10,9 +10,11 @@ import { type Cursor, decodeCursor } from "@/lib/cursor";
  * snapshots the JSON Schema so a careless edit fails the build instead of a
  * customer's pipeline.
  *
- * Note what is absent versus `internal/projects.schema.ts`: no `ownerId` (an
- * internal identifier), no `updatedAt` (an implementation detail we are not
- * promising to maintain). Exposing both to the frontend and freezing neither is
+ * Note what is absent versus `internal/projects.schema.ts`: no `createdBy` (an
+ * internal user identifier), no `updatedAt` (an implementation detail we are not
+ * promising to maintain). The tenant is absent from both — a caller is already
+ * scoped to one organization, so repeating its id on every item promises nothing
+ * and costs bytes. Exposing a field to the frontend and freezing none of it is
  * the point of keeping two schemas.
  */
 
