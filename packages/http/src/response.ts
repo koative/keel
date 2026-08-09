@@ -8,12 +8,14 @@ import {
 } from "./errors";
 import { type ErrorCode, status } from "./status";
 
-// evlog's Hono middleware always populates this, and Phase 1 proved the app
-// cannot serve a request without it. Declaring it here means every helper can
-// read `c.get("log")` without every handler threading an Env generic.
+// Declared here so every helper can read `c.get("log")` without threading an Env
+// generic through each handler. Optional on purpose: the variable exists only
+// after evlog's middleware has run, and these helpers *are* the error path — the
+// one place that must never be the thing that throws. An app typed as
+// `Hono<EvlogVariables>` still sees evlog's own non-optional declaration.
 declare module "hono" {
 	interface ContextVariableMap {
-		log: AuditableLogger;
+		log?: AuditableLogger;
 	}
 }
 
@@ -53,7 +55,7 @@ export type ErrorBody = z.infer<typeof errorSchema>;
  * fields, so it needs narrowing before it can be handed to a client.
  */
 function requestIdOf(c: Context): string {
-	const value = c.get("log").getContext().requestId;
+	const value = c.get("log")?.getContext().requestId;
 	return typeof value === "string" ? value : "unknown";
 }
 
@@ -125,18 +127,22 @@ export function badRequest(c: Context, detail: string) {
  * strings, SQL fragments and file paths. Only author-written 4xx text reaches
  * the client. `parseError` returns no stack trace at all, so there is nothing to
  * accidentally leak.
+ *
+ * evlog is a wide-event logger: the calls below enrich the request's single
+ * event rather than emitting a second one, which is why severity has to be
+ * chosen here and cannot be corrected later.
  */
 export function failure(c: Context, error: unknown) {
 	const parsed = parseError(error);
-	c.get("log").error(
-		error instanceof Error ? error : new Error(parsed.message)
-	);
-
+	const log = c.get("log");
 	const known =
 		parsed.status in ERROR_CODE_BY_STATUS
 			? (parsed.status as ErrorStatus)
 			: status.INTERNAL_SERVER_ERROR;
+
 	if (known === status.INTERNAL_SERVER_ERROR) {
+		// The stack belongs in the event and nowhere else.
+		log?.error(error instanceof Error ? error : new Error(parsed.message));
 		return errorBody(c, status.INTERNAL_SERVER_ERROR, {
 			code: "INTERNAL_SERVER_ERROR",
 			fix: "Retry the request, and quote the requestId if it keeps failing",
@@ -145,11 +151,16 @@ export function failure(c: Context, error: unknown) {
 		});
 	}
 
+	const code =
+		parsed.code && parsed.code in status
+			? (parsed.code as ErrorCode)
+			: ERROR_CODE_BY_STATUS[known];
+	// A 4xx is the caller's mistake, not a server failure. Recording a mistyped
+	// identifier at error severity is how an alerting channel becomes noise.
+	log?.warn(parsed.message, { errorCode: code });
+
 	return errorBody(c, known, {
-		code:
-			parsed.code && parsed.code in status
-				? (parsed.code as ErrorCode)
-				: ERROR_CODE_BY_STATUS[known],
+		code,
 		fix: parsed.fix,
 		link: parsed.link,
 		message: parsed.message,

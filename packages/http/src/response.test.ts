@@ -1,4 +1,5 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import { type DrainContext, initLogger } from "evlog";
 import { evlog } from "evlog/hono";
 import { Hono } from "hono";
 import { notFound as notFoundError } from "./errors";
@@ -125,6 +126,81 @@ describe("request correlation", () => {
 		expect(response.headers.get("x-request-id")).toBe("trace-99");
 		expect(errorSchema.parse(await response.json()).error.requestId).toBe(
 			"trace-99"
+		);
+	});
+});
+
+// evlog folds everything about a request into one event, so severity is decided
+// once, in `failure`, and cannot be downgraded afterwards.
+describe("wide event severity", () => {
+	const events: DrainContext[] = [];
+
+	const collect = () => {
+		events.length = 0;
+		initLogger({
+			drain: (context) => {
+				events.push(context);
+			},
+			silent: true,
+		});
+	};
+
+	afterEach(() => {
+		initLogger({ drain: () => Promise.resolve(), silent: true });
+	});
+
+	it("emits exactly one event per request, not one per log call", async () => {
+		collect();
+		await app.request("/crash");
+
+		expect(events).toHaveLength(1);
+	});
+
+	it("records a client mistake at warn, not error", async () => {
+		collect();
+		await app.request("/thrown-not-found");
+
+		expect(events[0]?.event.level).toBe("warn");
+		expect(events[0]?.event.errorCode).toBe("NOT_FOUND");
+	});
+
+	it("records a server failure at error, with the stack the client never sees", async () => {
+		collect();
+		await app.request("/crash");
+
+		expect(events[0]?.event.level).toBe("error");
+		expect(JSON.stringify(events[0]?.event.error)).toContain(LEAKED_SECRET);
+	});
+});
+
+// `failure` is the app's last line of defence. If it throws, Hono has nothing
+// left to render and the caller gets a bare 500 with no correlation id.
+describe("failure without evlog installed", () => {
+	const bare = new Hono()
+		.use(echoRequestId)
+		.onError((error, c) => failure(c, error))
+		.get("/crash", () => {
+			throw new Error("boom");
+		})
+		.get("/thrown-not-found", () => {
+			throw notFoundError("Project");
+		});
+
+	it("renders a 500 rather than throwing out of the error handler", async () => {
+		const response = await bare.request("/crash");
+		const body = errorSchema.parse(await response.json());
+
+		expect(response.status).toBe(500);
+		expect(body.error.code).toBe("INTERNAL_SERVER_ERROR");
+		expect(body.error.requestId).toBe("unknown");
+	});
+
+	it("keeps a 4xx a 4xx", async () => {
+		const response = await bare.request("/thrown-not-found");
+
+		expect(response.status).toBe(404);
+		expect(errorSchema.parse(await response.json()).error.code).toBe(
+			"NOT_FOUND"
 		);
 	});
 });
