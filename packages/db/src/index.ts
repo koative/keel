@@ -19,6 +19,9 @@ const pool = new Pool({
 	// Fail fast rather than queueing forever behind a saturated pool. The request
 	// surfaces as a 500 with a requestId, which is diagnosable; a hung request is not.
 	connectionTimeoutMillis: 5000,
+	// The matching hazard for writes: a transaction left open holds its locks and
+	// blocks every writer to those rows until something notices.
+	idle_in_transaction_session_timeout: env.STATEMENT_TIMEOUT_MS,
 	idleTimeoutMillis: 30_000,
 	// Postgres' own max_connections is the real ceiling; leave room for migrations,
 	// psql sessions and a second instance during a rolling deploy.
@@ -26,6 +29,12 @@ const pool = new Pool({
 	// A connection that has been alive for hours behind a proxy or failover is a
 	// liability; recycling bounds how stale one can get.
 	maxLifetimeSeconds: 1800,
+	// A query with no ceiling holds its pooled connection for as long as Postgres
+	// is willing to run it, so `max` runaway queries take the whole pool down and
+	// every other request then fails on connectionTimeoutMillis — one bad plan
+	// presenting as total unavailability. Enforced server-side, so it also covers
+	// a client that stops waiting.
+	statement_timeout: env.STATEMENT_TIMEOUT_MS,
 });
 
 // An idle-client error is emitted outside any request, so without a listener

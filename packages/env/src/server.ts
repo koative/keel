@@ -41,6 +41,16 @@ export const env = createEnv({
 		/** `key=value` pairs, comma separated. For a collector that wants a token. */
 		OTLP_HEADERS: z.string().optional(),
 		/**
+		 * Ceiling for a single statement and for an idle open transaction, in ms.
+		 *
+		 * Bounds the blast radius of one bad plan: without it a runaway query keeps
+		 * its pooled connection until Postgres gives up, so `DATABASE_POOL_MAX` of
+		 * them exhaust the pool and every unrelated request fails behind it. Raise
+		 * it for a deliberately long report, but raise it for that connection —
+		 * not for the pool the request path shares.
+		 */
+		STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+		/**
 		 * The header a trusted proxy uses to report the real client IP, e.g.
 		 * `x-forwarded-for` or `cf-connecting-ip`.
 		 *
