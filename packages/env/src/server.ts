@@ -48,9 +48,28 @@ export const env = createEnv({
 		 * directly reachable lets any caller forge it and slip the rate limiter;
 		 * leaving it unset means every caller shares one bucket per path, which is
 		 * coarse but not forgeable. Only the deployment knows which is true, so the
-		 * deployment decides — and the server says so at startup when it is unset.
+		 * deployment decides.
 		 */
 		TRUSTED_IP_HEADER: z.string().min(1).optional(),
+		/**
+		 * The addresses of the proxies in front of this app, as IPs or CIDR ranges,
+		 * comma separated — e.g. `10.0.0.0/8,172.16.0.0/12`.
+		 *
+		 * Needed whenever the forwarding header can hold more than one address,
+		 * which is the normal case: Traefik, nginx's `proxy_add_x_forwarded_for`
+		 * and every CDN append rather than replace. Without this, Better Auth
+		 * refuses to guess which entry is the client and falls back to the shared
+		 * bucket, so `TRUSTED_IP_HEADER` alone silently does nothing there.
+		 *
+		 * List every hop. Better Auth scans from the right and returns the first
+		 * address outside these ranges, so a hop left out of the list becomes the
+		 * answer — and a range that is too wide lets a caller inside it choose.
+		 */
+		TRUSTED_PROXIES: z
+			.string()
+			.min(1)
+			.optional()
+			.transform((value) => value?.split(",").map((entry) => entry.trim())),
 	},
 	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
 });

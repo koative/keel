@@ -46,14 +46,29 @@ export function createAuth() {
 			 * single aggressive client locks every user out of `/sign-in`, turning a
 			 * defence into a denial-of-service lever.
 			 *
-			 * Left unset by default because trusting `x-forwarded-for` on an app that
-			 * is directly reachable lets any caller spoof its own identity and bypass
-			 * the limit entirely. Only a deployment that knows a proxy rewrites the
-			 * header can safely name it, so the deployment names it. The server warns
-			 * at startup when it is unset.
+			 * Naming the header is not enough, and this was measured rather than
+			 * assumed. `getIPFromHeader` returns null unless the header holds exactly
+			 * ONE address, so behind anything that appends — Traefik, nginx's
+			 * `proxy_add_x_forwarded_for`, a CDN, any second hop — the value has two
+			 * entries and resolution silently falls back to the shared bucket. Only
+			 * `trustedProxies` changes that: with it, Better Auth walks the list from
+			 * the right, skips every address inside a trusted range, and takes the
+			 * first one that is not. That is the only order that resists spoofing,
+			 * because a client controls what it prepends and nothing more.
+			 *
+			 * Both stay unset by default: trusting a forwarding header on an app that
+			 * is directly reachable lets any caller invent its own identity and skip
+			 * the limit entirely. Only a deployment knows what sits in front of it.
 			 */
 			...(env.TRUSTED_IP_HEADER
-				? { ipAddress: { ipAddressHeaders: [env.TRUSTED_IP_HEADER] } }
+				? {
+						ipAddress: {
+							ipAddressHeaders: [env.TRUSTED_IP_HEADER],
+							...(env.TRUSTED_PROXIES
+								? { trustedProxies: env.TRUSTED_PROXIES }
+								: {}),
+						},
+					}
 				: {}),
 		},
 		baseURL: env.BETTER_AUTH_URL,

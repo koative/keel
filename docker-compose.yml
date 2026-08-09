@@ -1,15 +1,25 @@
 name: keel
 
+# Published ports are variables so a second checkout can run beside this one — a
+# boilerplate gets cloned repeatedly on one machine, and a fixed 3000 means the
+# second copy cannot come up at all. Only the HOST side moves; containers always
+# listen on 3000, so healthchecks and the Dockerfile never learn about the mapping.
+#
+#   SERVER_PORT=4000 WEB_PORT=4001 POSTGRES_PORT=5442 docker compose up
+#
+# Avoid 6000: Chrome refuses it as ERR_UNSAFE_PORT, which presents as a page that
+# will not load with nothing wrong on the server.
+
 services:
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        VITE_SERVER_URL: http://localhost:3000
+        VITE_SERVER_URL: http://localhost:${SERVER_PORT:-3000}
     init: true
     ports:
-      - "3001:80"
+      - "${WEB_PORT:-3001}:80"
     env_file:
       - path: apps/web/.env
         required: false
@@ -30,15 +40,15 @@ services:
       dockerfile: apps/server/Dockerfile
     init: true
     ports:
-      - "3000:3000"
+      - "${SERVER_PORT:-3000}:3000"
     # BETTER_AUTH_SECRET has no safe default, so it must come from here. Without
     # it the container exits at startup naming the missing key — see .env.example.
     env_file:
       - path: apps/server/.env
         required: false
     environment:
-      BETTER_AUTH_URL: http://localhost:3000
-      CORS_ORIGIN: http://localhost:3001
+      BETTER_AUTH_URL: http://localhost:${SERVER_PORT:-3000}
+      CORS_ORIGIN: http://localhost:${WEB_PORT:-3001}
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/keel
     # /ready, not /. Liveness and readiness answer different questions: / and
     # /health say the process is up and should not be restarted, /ready says it
@@ -79,8 +89,8 @@ services:
       - path: apps/server/.env
         required: false
     environment:
-      BETTER_AUTH_URL: http://localhost:3000
-      CORS_ORIGIN: http://localhost:3001
+      BETTER_AUTH_URL: http://localhost:${SERVER_PORT:-3000}
+      CORS_ORIGIN: http://localhost:${WEB_PORT:-3001}
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/keel
     depends_on:
       postgres:
@@ -95,7 +105,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - keel_postgres_data:/var/lib/postgresql
     healthcheck:
@@ -118,7 +128,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     ports:
-      - "5433:5432"
+      - "${POSTGRES_TEST_PORT:-5433}:5432"
     tmpfs:
       - /var/lib/postgresql
     healthcheck:
