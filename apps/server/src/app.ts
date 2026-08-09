@@ -12,7 +12,7 @@ import type { AppEnv } from "@/lib/context";
 import {
 	internalProjectRoutes,
 	publicProjectRoutesV1,
-} from "@/modules/projects";
+} from "@/modules/projects/index";
 
 const identifyUser = createAuthMiddleware(auth as BetterAuthInstance, {
 	exclude: ["/api/auth/**"],

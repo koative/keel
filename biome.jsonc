@@ -1,0 +1,289 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": [
+    "ultracite/biome/core",
+    "ultracite/biome/react",
+    "ultracite/biome/tanstack",
+    "ultracite/biome/type-aware"
+  ],
+  // Registered without `includes` on purpose. Scoping it here is the obvious
+  // move and it is a trap: globs in `plugins[].includes` are matched against the
+  // absolute, symlink-resolved path, so the documented relative form silently
+  // matches nothing and the plugin never runs — with no diagnostic. Applying it
+  // everywhere and exempting one file inside the pattern is both simpler and
+  // verifiable; `bun tools/check-rules.ts` asserts the exemption in both
+  // directions.
+  "plugins": ["./tools/biome-plugins/no-direct-json.grit"],
+  "files": {
+    "ignoreUnknown": false,
+    // Force-ignore only. A catch-all here trips noBiomeFirstException, and that
+    // rule's own safe fix produces a config where nothing is included and the
+    // module resolver panics. The extended preset supplies the catch-all.
+    "includes": ["!!bts.jsonc"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "tab"
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "correctness": {
+        "useExhaustiveDependencies": "error",
+        // Both arrive with ultracite/biome/type-aware and are unusable here.
+        // noUnresolvedImports reports 85 false positives: Biome 2.5.7 resolves a
+        // package directory without reading its `exports` map ("found directory
+        // without index"), so every dependency shipping only dist/ fails, and it
+        // does not know Bun's built-ins either. useImportExtensions would require
+        // an explicit .ts on every relative import, which Bun, Vite and tsdown
+        // all treat as non-idiomatic. `tsc --noEmit` already resolves every
+        // import, and it runs in `bun run check`.
+        "noUnresolvedImports": "off",
+        "useImportExtensions": "off"
+      },
+      "performance": {
+        // Unsatisfiable inside a TanStack Form render prop: a handler defined
+        // there cannot be hoisted into useCallback, so the rule would only ever
+        // produce biome-ignore comments.
+        "noJsxPropsBind": "off"
+      },
+      "style": {
+        "noExcessiveLinesPerFile": {
+          "level": "error",
+          "options": {
+            "maxLines": 200
+          }
+        },
+        // Environment access belongs to @keel/env, which validates it.
+        "noProcessEnv": "error",
+        "useSingleVarDeclarator": "error"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    },
+    "globals": ["Bun"]
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "overrides": [
+    {
+      // This file carries comments, so it has to be parsed as JSONC.
+      "includes": ["biome.json"],
+      "json": {
+        "parser": {
+          "allowComments": true
+        }
+      }
+    },
+    {
+      // Drizzle's `drizzle(url, { schema })` and `drizzleAdapter(db, { schema })`
+      // take a namespace of every table; listing them by hand would drift the
+      // moment a table is added.
+      "includes": ["packages/db/src/index.ts", "packages/auth/src/index.ts"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noNamespaceImport": "off"
+          }
+        }
+      }
+    },
+    {
+      // Re-export is the architecture in these two places: the Drizzle schema
+      // aggregate, and the single entry point that makes a module's internals
+      // private.
+      "includes": [
+        "packages/db/src/schema/index.ts",
+        "apps/server/src/modules/*/index.ts"
+      ],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noBarrelFile": "off"
+          }
+        }
+      }
+    },
+    {
+      // Vendored shadcn primitives. The shadcn CLI rewrites these files, so
+      // edits to satisfy a lint rule are lost on the next update. Their markup
+      // trades semantic elements for composable containers on purpose (a
+      // <fieldset> breaks the flex layout) and click-to-focus wrappers delegate
+      // keyboard handling to the control they focus. Accessibility is enforced
+      // at the consumption site instead.
+      "includes": ["packages/ui/src/components/**"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "noLabelWithoutControl": "off",
+            "noNoninteractiveElementInteractions": "off",
+            "useKeyWithClickEvents": "off",
+            "useSemanticElements": "off"
+          },
+          "performance": {
+            "noBarrelFile": "off"
+          },
+          "style": {
+            "noExcessiveLinesPerFile": "off"
+          }
+        }
+      }
+    },
+    {
+      // The env layer itself, the tooling that runs before it exists, and the
+      // Vite config that Vite reads before any module loads.
+      "includes": [
+        "packages/env/src/**",
+        "packages/db/drizzle.config.ts",
+        "apps/server/test-setup.ts",
+        "apps/web/src/lib/auth-client.ts",
+        "apps/web/vite.config.ts",
+        "tools/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noProcessEnv": "off"
+          }
+        }
+      }
+    },
+    // ─────────────────────────────────────────────────────────────────────────
+    // Layer boundaries.
+    //
+    // READ THIS BEFORE EDITING: Biome does not merge rule options across
+    // overrides. When two overrides configure noRestrictedImports and both match
+    // a file, the LAST one wins outright and the earlier patterns vanish — with
+    // no diagnostic. The three blocks below are therefore mutually exclusive by
+    // path, and each repeats the module-privacy patterns it needs.
+    //
+    // `bun tools/check-rules.ts` proves every one of them still fires against a
+    // deliberate violation. It caught exactly this replacement bug once already.
+    // ─────────────────────────────────────────────────────────────────────────
+    {
+      // Everything in a module that is not a service, an HTTP layer or a test.
+      "includes": [
+        "apps/server/src/modules/**",
+        "!**/*.service.ts",
+        "!**/*.routes.ts",
+        "!**/*.handlers.ts",
+        "!**/*.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@/modules/*/*", "@/modules/*/**"],
+                    "message": "A module's internals are private. Import the module root — @/modules/<name> — which resolves to its index.ts."
+                  },
+                  {
+                    "group": ["../../*", "../../**"],
+                    "message": "A relative import may not escape its module directory. Reach another module through @/modules/<name>, and shared code through @/lib/*."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/server/src/modules/*/*.service.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["hono", "hono/**"],
+                    "message": "A service must not know about HTTP. Take what it needs as a parameter — see lib/log.ts — and let the handler adapt the request."
+                  },
+                  {
+                    "group": [
+                      "@keel/db",
+                      "@keel/db/**",
+                      "drizzle-orm",
+                      "drizzle-orm/**"
+                    ],
+                    "message": "Only *.repository.ts may reach the database. Add the query there and call it through the injected store."
+                  },
+                  {
+                    "group": [
+                      "@keel/http/response",
+                      "@keel/http/openapi",
+                      "@keel/http/status"
+                    ],
+                    "message": "Response shapes belong to a handler. A service throws from @keel/http/errors instead."
+                  },
+                  {
+                    "group": ["@/modules/*/*", "@/modules/*/**"],
+                    "message": "A module's internals are private. Import the module root — @/modules/<name> — which resolves to its index.ts."
+                  },
+                  {
+                    "group": ["../../*", "../../**"],
+                    "message": "A relative import may not escape its module directory. Reach another module through @/modules/<name>, and shared code through @/lib/*."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/server/src/modules/*/**/*.routes.ts",
+        "apps/server/src/modules/*/**/*.handlers.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "@keel/db",
+                      "@keel/db/**",
+                      "drizzle-orm",
+                      "drizzle-orm/**"
+                    ],
+                    "message": "An HTTP layer may not reach the database. Route the call through the module's service and repository."
+                  },
+                  {
+                    "group": ["@/modules/*/*", "@/modules/*/**"],
+                    "message": "A module's internals are private. Import the module root — @/modules/<name> — which resolves to its index.ts."
+                  },
+                  {
+                    "group": ["../../*", "../../**"],
+                    "message": "A relative import may not escape its module directory. Reach another module through @/modules/<name>, and shared code through @/lib/*."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

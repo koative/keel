@@ -1,0 +1,15 @@
+// Handlers must not build a response body by hand.
+//
+// Targeting the raw status code (`c.json(x, 404)`) would be insufficient: an
+// author using a named constant still writes the envelope themselves, and the
+// two shapes drift. So the rule targets `c.json` itself, whatever the arguments.
+//
+// The plugin is registered repo-wide, so the exemption lives here: @keel/http is
+// the package that owns the envelope, and the only place allowed to construct
+// one. `$filename` holds an absolute path, hence the leading `.*/`.
+// `bun tools/check-rules.ts` asserts both directions — that a handler is flagged
+// and that this exemption still holds.
+`c.json($...)` as $call where {
+	not $filename <: r".*/packages/http/src/.*",
+	register_diagnostic(span=$call, message="Do not call c.json() directly — the response envelope is defined in one place. Use ok, created, noContent, notFound, conflict or badRequest from @keel/http/response.", severity="error")
+}

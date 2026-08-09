@@ -42,7 +42,7 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "check": "turbo run check-types test && bun run lint && bun tools/check-catalog.ts",
+    "check": "turbo run check-types test && bun run lint && bun tools/check-catalog.ts && bun tools/check-rules.ts",
     "check-types": "turbo run check-types",
     "test": "turbo run test",
     "lint": "ultracite check",

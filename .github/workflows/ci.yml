@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # The integration suites skip themselves when this is unreachable, which is
+    # exactly what must never happen in CI. Starting it here is what makes the
+    # repository and route tests actually run.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: keel_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:password@localhost:5433/keel_test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - run: bun install --frozen-lockfile
+
+      - name: Push schema to the test database
+        run: bun run db:test:push
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+
+      # typecheck, tests, lint, catalog drift, and the architecture rules
+      - run: bun run check
+
+      # A skipped integration suite is a green build that proved nothing, so the
+      # count is asserted rather than trusted.
+      - name: Fail if any test was skipped
+        run: |
+          cd apps/server
+          bun test 2>&1 | tee /tmp/test.log
+          if grep -qE '^ *[1-9][0-9]* skip' /tmp/test.log; then
+            echo "::error::integration tests were skipped — the test database was not reachable"
+            exit 1
+          fi
+        env:
+          TEST_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+
+      - run: bun run build
