@@ -21,6 +21,26 @@ describe("checkReadiness", () => {
 		expect(result).toEqual({ ready: false, reason: "database unreachable" });
 	});
 
+	// The distinction is the whole point: reporting "unreachable" when the real
+	// problem is an unmigrated database sends an operator to look at the network.
+	// The wrapped shape is what Drizzle actually throws — the SQLSTATE sits on
+	// `cause`, not on the error itself.
+	it("distinguishes an unmigrated database from an unreachable one", async () => {
+		const undefinedTable = Object.assign(
+			new Error('relation "user" does not exist'),
+			{
+				cause: Object.assign(new Error("wrapped"), { code: "42P01" }),
+			}
+		);
+
+		const result = await checkReadiness(() => Promise.reject(undefinedTable));
+
+		expect(result).toEqual({
+			ready: false,
+			reason: "database schema not applied",
+		});
+	});
+
 	// /ready is unauthenticated by necessity — an orchestrator has no session — so
 	// its body is public. A node-postgres failure quotes the whole DSN, password
 	// included, which is why the reason is a fixed string rather than the message.

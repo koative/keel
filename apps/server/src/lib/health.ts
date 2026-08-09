@@ -1,4 +1,5 @@
 import { db } from "@keel/db";
+import { hasSqlState, UNDEFINED_TABLE } from "@keel/db/errors";
 import { sql } from "drizzle-orm";
 
 interface DatabaseNotReady {
@@ -33,11 +34,18 @@ const PROBE_BUDGET_MS = 2000;
  * What actually hangs is acquiring a connection — a saturated pool or a black-holed
  * network — and only a client-side deadline bounds that.
  *
- * `probe` defaults to the cheapest statement that proves a connection is usable
- * end to end. Tests inject their own; nothing in the application passes one.
+ * `probe` defaults to the cheapest statement that proves both that a connection is
+ * usable end to end and that the schema has been applied. `select 1` proved only
+ * the former, and a container pointed at an empty database answered "ready" while
+ * every real request returned 500 — the same lie as a healthcheck on a route that
+ * cannot fail, one level subtler. `limit 0` touches no rows, so the cost is a parse
+ * and a plan; the relation still has to exist for either to succeed.
+ *
+ * Tests inject their own; nothing in the application passes one.
  */
 export async function checkReadiness(
-	probe: () => Promise<unknown> = () => db.execute(sql`select 1`)
+	probe: () => Promise<unknown> = () =>
+		db.execute(sql`select 1 from "user" limit 0`)
 ): Promise<Readiness> {
 	const deadline = Promise.withResolvers<never>();
 	let expired = false;
@@ -50,10 +58,14 @@ export async function checkReadiness(
 	try {
 		await Promise.race([probe(), deadline.promise]);
 		return { ready: true };
-	} catch {
-		// The rejection value is deliberately not bound. A node-postgres failure
-		// carries the host, port, user, password and database it could not reach,
-		// and this string is served to an unauthenticated caller.
+	} catch (error) {
+		// Only the SQLSTATE is read. A node-postgres failure carries the host, port,
+		// user, password and database it could not reach, and this string is served
+		// to an unauthenticated caller.
+		if (hasSqlState(error, UNDEFINED_TABLE)) {
+			return { ready: false, reason: "database schema not applied" };
+		}
+
 		return {
 			ready: false,
 			reason: expired ? "database probe timed out" : "database unreachable",

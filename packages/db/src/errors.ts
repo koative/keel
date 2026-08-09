@@ -3,15 +3,24 @@ import { conflict } from "@keel/http/errors";
 /** SQLSTATE for `unique_violation`. */
 const UNIQUE_VIOLATION = "23505";
 
+/** SQLSTATE for `undefined_table`. */
+export const UNDEFINED_TABLE = "42P01";
+
 /**
+ * Reports whether `error`, or anything it wraps, carries this SQLSTATE.
+ *
  * Drizzle wraps every driver failure in a `DrizzleQueryError` and hangs the
  * original `pg` error off `cause`, so the SQLSTATE is one level down. The chain
  * is walked rather than matched with `instanceof DatabaseError` for the same
  * reason evlog warns against `instanceof` on its own errors: `drizzle-orm`
  * resolves `pg` independently of this package, and a second physical copy turns
  * the check silently false — downgrading a "that slug is taken" to a 500.
+ *
+ * Only the code is read. A node-postgres error also carries the host, port, user,
+ * password and database it could not reach, so callers that turn a failure into a
+ * message must never reach for anything else on it.
  */
-function isUniqueViolation(error: unknown): boolean {
+export function hasSqlState(error: unknown, sqlstate: string): boolean {
 	for (
 		let current: unknown = error;
 		current !== null && current !== undefined;
@@ -19,7 +28,7 @@ function isUniqueViolation(error: unknown): boolean {
 		if (
 			typeof current === "object" &&
 			"code" in current &&
-			current.code === UNIQUE_VIOLATION
+			current.code === sqlstate
 		) {
 			return true;
 		}
@@ -47,7 +56,7 @@ export async function withUniqueConflict<T>(
 	try {
 		return await write();
 	} catch (error) {
-		if (isUniqueViolation(error)) {
+		if (hasSqlState(error, UNIQUE_VIOLATION)) {
 			throw conflict(target.resource, target.field);
 		}
 		throw error;

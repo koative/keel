@@ -59,9 +59,33 @@ services:
       retries: 5
       start_period: 10s
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     restart: unless-stopped
+
+  # Same one-shot gate as production, for the same reason: without it `up` produced
+  # a stack that reported healthy against an empty database and returned 500 for
+  # every request. `db:push` is for iterating on the schema from the host; the
+  # container path applies the committed migrations, so what runs here is what will
+  # run on a server.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    command: ["bun", "dist/migrate.mjs"]
+    env_file:
+      - path: apps/server/.env
+        required: false
+    environment:
+      BETTER_AUTH_URL: http://localhost:3000
+      CORS_ORIGIN: http://localhost:3001
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/keel
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   postgres:
     image: postgres:18
