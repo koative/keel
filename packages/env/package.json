@@ -8,7 +8,7 @@
     "./web": "./src/web.ts"
   },
   "dependencies": {
-    "@t3-oss/env-core": "^0.13.11",
+    "@t3-oss/env-core": "catalog:",
     "dotenv": "catalog:",
     "zod": "catalog:"
   },
@@ -16,5 +16,8 @@
     "@keel/config": "workspace:*",
     "@types/bun": "catalog:",
     "typescript": "catalog:"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
   }
 }

@@ -1,43 +1,16 @@
-import { auth } from "@keel/auth";
 import { env } from "@keel/env/server";
 import { initLogger } from "evlog";
-import { createAuthMiddleware, type BetterAuthInstance } from "evlog/better-auth";
 import { createFsDrain } from "evlog/fs";
-import { evlog, type EvlogVariables } from "evlog/hono";
-import { Hono } from "hono";
-import { cors } from "hono/cors";
+import { app } from "./app";
 
+// Process-wide and not idempotent: evlog's own docs warn that a second call
+// without `drain` clears the drain for every copy of the package. This entry
+// point is the only place allowed to call it.
 initLogger({
-  env: { service: "keel-server" },
+	drain: env.NODE_ENV === "production" ? undefined : createFsDrain(),
+	env: { service: "keel-server" },
 });
 
-const identifyUser = createAuthMiddleware(auth as BetterAuthInstance, {
-  exclude: ["/api/auth/**"],
-  maskEmail: true,
-});
-
-const app = new Hono<EvlogVariables>();
-
-app.use(evlog({ drain: process.env.NODE_ENV === "production" ? undefined : createFsDrain() }));
-app.use("*", async (c, next) => {
-  await identifyUser(c.get("log"), c.req.raw.headers, c.req.path);
-  await next();
-});
-
-app.use(
-  "/*",
-  cors({
-    origin: env.CORS_ORIGIN,
-    allowMethods: ["GET", "POST", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-  }),
-);
-
-app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
-
-app.get("/", (c) => {
-  return c.text("OK");
-});
-
-export default app;
+// Exporting the fetch handler rather than re-exporting `app` keeps the runtime
+// contract explicit: Bun reads `fetch` and resolves the port from PORT itself.
+export default { fetch: app.fetch };

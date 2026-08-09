@@ -72,5 +72,27 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Integration tests run against a real Postgres, never against the dev
+  # database. Storage is tmpfs so every `up` starts from an empty cluster and
+  # a crashed test run cannot leave state behind. Guarded by a profile so
+  # `docker compose up` does not start it.
+  postgres-test:
+    image: postgres:18
+    container_name: keel-postgres-test
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: keel_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
 volumes:
   keel_postgres_data:

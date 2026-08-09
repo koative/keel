@@ -15,9 +15,9 @@
     "@hookform/resolvers": "^5.5.7",
     "@keel/env": "workspace:*",
     "@keel/ui": "workspace:*",
-    "@tailwindcss/vite": "^4.3.3",
+    "@tailwindcss/vite": "catalog:",
     "@tanstack/react-form": "^1.33.2",
-    "@tanstack/react-router": "^1.170.18",
+    "@tanstack/react-router": "catalog:",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
     "lucide-react": "catalog:",
@@ -30,9 +30,9 @@
   },
   "devDependencies": {
     "@keel/config": "workspace:*",
-    "@tanstack/react-router-devtools": "^1.167.0",
-    "@tanstack/router-plugin": "^1.168.23",
-    "@types/node": "^22.20.1",
+    "@tanstack/react-router-devtools": "catalog:",
+    "@tanstack/router-plugin": "catalog:",
+    "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vite-pwa/assets-generator": "^1.0.2",
@@ -40,6 +40,6 @@
     "postcss": "^8.5.24",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
-    "vite": "^8.1.5"
+    "vite": "catalog:"
   }
 }

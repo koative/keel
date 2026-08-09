@@ -4,10 +4,11 @@
   "main": "src/index.ts",
   "scripts": {
     "build": "tsdown",
-    "check-types": "tsc -b",
+    "check-types": "tsc --noEmit",
     "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
     "dev": "bun run --hot src/index.ts",
-    "start": "bun run dist/index.mjs"
+    "start": "bun run dist/index.mjs",
+    "test": "bun test"
   },
   "dependencies": {
     "@keel/auth": "workspace:*",
@@ -15,14 +16,14 @@
     "@keel/env": "workspace:*",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
-    "evlog": "^2.22.4",
-    "hono": "^4.12.32",
+    "evlog": "catalog:",
+    "hono": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@keel/config": "workspace:*",
     "@types/bun": "catalog:",
-    "tsdown": "^0.22.14",
+    "tsdown": "catalog:",
     "typescript": "catalog:"
   }
 }
