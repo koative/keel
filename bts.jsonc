@@ -1,0 +1,28 @@
+// Better-T-Stack project metadata
+//
+// Keep this file to use the `add` command.
+// Add addons: bunx create-better-t-stack@latest add
+//
+// Docs: https://better-t-stack.dev/docs
+// Stack Builder: https://better-t-stack.dev/new
+
+{
+  "$schema": "https://r2.better-t-stack.dev/schema.json",
+  "version": "3.38.2",
+  "createdAt": "2026-08-08T23:59:13.095Z",
+  "reproducibleCommand": "bun create better-t-stack@latest keel --frontend tanstack-router --backend hono --runtime bun --database postgres --orm drizzle --api none --auth better-auth --payments none --addons biome evlog mcp pwa skills turborepo ultracite --examples none --db-setup docker --web-deploy docker --server-deploy docker --git --package-manager bun --install",
+  "database": "postgres",
+  "orm": "drizzle",
+  "backend": "hono",
+  "runtime": "bun",
+  "frontend": ["tanstack-router"],
+  "addons": ["biome", "evlog", "mcp", "pwa", "skills", "turborepo", "ultracite"],
+  "examples": [],
+  "auth": "better-auth",
+  "payments": "none",
+  "packageManager": "bun",
+  "dbSetup": "docker",
+  "api": "none",
+  "webDeploy": "docker",
+  "serverDeploy": "docker",
+}

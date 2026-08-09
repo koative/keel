@@ -1,0 +1,24 @@
+{
+  "name": "@keel/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@keel/db": "workspace:*",
+    "@keel/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@keel/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
