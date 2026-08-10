@@ -22,6 +22,13 @@
       "when": 1786324844356,
       "tag": "0002_zone_aware_timestamps_and_seek_index",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786329158958,
+      "tag": "0003_api_rate_limit",
+      "breakpoints": true
     }
   ]
 }

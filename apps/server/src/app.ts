@@ -116,6 +116,24 @@ app.use("*", async (c, next) => {
 // an oversized payload has already paid for it.
 app.use("*", requestBodyLimit);
 
+/**
+ * The rate limiter is deliberately NOT mounted here, and this is the first place
+ * anyone will look for it.
+ *
+ * It is keyed on `actorId`, which `requireUser` puts on the context, and
+ * `requireUser` is mounted per module. Hono leaves no position in this file that
+ * satisfies both: registered above, an `app.use("/api/*", …)` runs before the
+ * module's guard and has no actor to key on; registered below `app.route(…)` it
+ * never runs at all, because by then the module's own route handler is already
+ * ahead of it in the chain and terminates it. So the limiter is mounted beside
+ * `requireUser` in each module's `*.routes.ts`, and `tools/gen-module.ts` emits
+ * it, so a generated module is limited from its first commit.
+ *
+ * That placement also gives the exclusions for free rather than as a path list
+ * to maintain: `/api/auth/*` is Better Auth's handler below and limits itself on
+ * IP, having no actor yet, while `/health`, `/ready`, `/doc` and `/reference`
+ * belong to no module.
+ */
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
 // Declaring the 401 responses without declaring how to authenticate leaves the

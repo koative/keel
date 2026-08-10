@@ -9,6 +9,7 @@ import { status } from "@keel/http/status";
 import { requireOrg, requireUser } from "@/lib/auth";
 import type { AppEnv } from "@/lib/context";
 import { idempotent } from "@/lib/idempotency";
+import { rateLimit } from "@/lib/rate-limit";
 import { rejectInvalid } from "@/lib/validate";
 import { create, get, list } from "./projects.v1.handlers";
 import {
@@ -44,6 +45,14 @@ const forbidden = problemContent(
 	"The session has no active organization"
 );
 
+// Every operation is behind the actor-keyed limiter, so 429 is reachable from
+// any of them. Undeclared, a generated SDK would treat it as an unknown status
+// and lose the `Retry-After` the response carries.
+const rateLimited = problemContent(
+	errorSchema,
+	"The actor's request budget for this window is exhausted"
+);
+
 // Every endpoint here is behind `requireUser` and `requireOrg`. Stated per route
 // rather than as a document-level default so an operation that is ever made
 // anonymous has to say so explicitly instead of inheriting silence.
@@ -65,6 +74,7 @@ export const listProjectsRoute = createRoute({
 			errorSchema,
 			"The limit is out of range, or the cursor did not come from us"
 		),
+		[status.TOO_MANY_REQUESTS]: rateLimited,
 	},
 	security: SECURITY,
 	summary: "List projects",
@@ -91,6 +101,7 @@ export const createProjectRoute = createRoute({
 			errorSchema,
 			"The body failed validation"
 		),
+		[status.TOO_MANY_REQUESTS]: rateLimited,
 	},
 	security: SECURITY,
 	summary: "Create a project",
@@ -117,6 +128,7 @@ export const getProjectRoute = createRoute({
 			errorSchema,
 			"The id is not a UUID"
 		),
+		[status.TOO_MANY_REQUESTS]: rateLimited,
 	},
 	security: SECURITY,
 	summary: "Fetch one project",
@@ -131,6 +143,11 @@ const surface = new OpenAPIHono<AppEnv>({ defaultHook: rejectInvalid });
 // chaining it would erase `.openapi` from the type. Middleware contributes
 // nothing to the schema, so nothing is lost by splitting it out.
 surface.use(requireUser);
+
+// Immediately after `requireUser`, which is what puts the actor this is keyed on
+// onto the context, and deliberately before `requireOrg`: a caller already over
+// budget is refused without spending a membership query on them.
+surface.use(rateLimit);
 
 // After `requireUser`, which resolved the session it reads. A member without an
 // active organization is refused here rather than deeper down, so no handler

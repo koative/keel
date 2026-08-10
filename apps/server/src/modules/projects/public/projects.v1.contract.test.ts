@@ -54,9 +54,9 @@ const operations: Record<string, Operation> = {
 
 describe("the published v1 contract", () => {
 	it.each([
-		["GET /v1/projects", ["200", "401", "403", "422"]],
-		["POST /v1/projects", ["201", "401", "403", "409", "422"]],
-		["GET /v1/projects/{id}", ["200", "401", "403", "404", "422"]],
+		["GET /v1/projects", ["200", "401", "403", "422", "429"]],
+		["POST /v1/projects", ["201", "401", "403", "409", "422", "429"]],
+		["GET /v1/projects/{id}", ["200", "401", "403", "404", "422", "429"]],
 	])("%s is behind the session and declares its statuses", (name, expected) => {
 		expect(operations[name]?.security).toEqual([{ sessionCookie: [] }]);
 		expect(Object.keys(operations[name]?.responses ?? {})).toEqual(expected);
@@ -64,12 +64,14 @@ describe("the published v1 contract", () => {
 
 	// A generated SDK matches on the declared media type. Errors are RFC 9457
 	// documents, so declaring `application/json` for one would send every
-	// consumer looking for a content type this API never sends.
+	// consumer looking for a content type this API never sends. 429 is called out
+	// because it is the one every operation shares: `/v1` is rate limited as a
+	// whole, so a reader can exhaust its budget just as a writer can.
 	it.each(Object.keys(operations))("%s serves failures as problems", (name) => {
 		const failures = Object.entries(operations[name]?.responses ?? {}).filter(
 			([code]) => !code.startsWith("2")
 		);
-
+		expect(failures.map(([code]) => code)).toContain("429");
 		expect(failures.map(([, body]) => Object.keys(body.content ?? {}))).toEqual(
 			failures.map(() => [PROBLEM])
 		);

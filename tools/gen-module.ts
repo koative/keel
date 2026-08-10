@@ -407,6 +407,7 @@ export async function get(c: IdContext) {
 import { Hono } from "hono";
 import { requireOrg, requireUser } from "@/lib/auth";
 import type { AppEnv } from "@/lib/context";
+import { rateLimit } from "@/lib/rate-limit";
 import { rejectInvalid } from "@/lib/validate";
 import { get, list } from "./${name}.handlers";
 import { ${camel}IdSchema, ${camel}PageSchema } from "./${name}.schema";
@@ -421,9 +422,14 @@ import { ${camel}IdSchema, ${camel}PageSchema } from "./${name}.schema";
  * what the session already resolved, so a signed-in member with no active
  * organization gets a 403 the SPA can route to onboarding, while an anonymous
  * caller still gets the 401 that tells it to sign in.
+ *
+ * \`rateLimit\` goes between the two. It is keyed on the actor \`requireUser\`
+ * resolved, and refusing before \`requireOrg\` means a caller already over budget
+ * does not cost a membership query as well.
  */
 export const internal${pascal}Routes = new Hono<AppEnv>()
 	.use(requireUser)
+	.use(rateLimit)
 	.use(requireOrg)
 	.get("/", zValidator("query", ${camel}PageSchema, rejectInvalid), list)
 	.get("/:id", zValidator("param", ${camel}IdSchema, rejectInvalid), get);
@@ -546,6 +552,7 @@ import { jsonContent, problemContent } from "@keel/http/openapi";
 import { status } from "@keel/http/status";
 import { requireOrg, requireUser } from "@/lib/auth";
 import type { AppEnv } from "@/lib/context";
+import { rateLimit } from "@/lib/rate-limit";
 import { rejectInvalid } from "@/lib/validate";
 import { get, list } from "./${name}.v1.handlers";
 import { ${camel}IdV1Schema, ${camel}ListV1Schema, ${camel}PageV1Schema, ${camel}V1Envelope } from "./${name}.v1.schema";
@@ -572,6 +579,14 @@ const forbidden = problemContent(
 	"The session has no active organization"
 );
 
+// Every operation is behind the actor-keyed limiter, so 429 is reachable from
+// any of them. Undeclared, a generated SDK would treat it as an unknown status
+// and lose the \`Retry-After\` the response carries.
+const rateLimited = problemContent(
+	errorSchema,
+	"The actor's request budget for this window is exhausted"
+);
+
 // Every endpoint here is behind \`requireUser\` and \`requireOrg\`. Stated per route
 // rather than as a document-level default so an operation that is ever made
 // anonymous has to say so explicitly instead of inheriting silence.
@@ -591,6 +606,7 @@ export const list${pascal}Route = createRoute({
 			errorSchema,
 			"The limit is out of range, or the cursor did not come from us"
 		),
+		[status.TOO_MANY_REQUESTS]: rateLimited,
 	},
 	security: SECURITY,
 	summary: "List ${name}",
@@ -609,6 +625,7 @@ export const get${singular}Route = createRoute({
 		[status.FORBIDDEN]: forbidden,
 		[status.NOT_FOUND]: problemContent(errorSchema, "No such ${singular.toLowerCase()} in this organization"),
 		[status.UNPROCESSABLE_ENTITY]: problemContent(errorSchema, "The id is not a UUID"),
+		[status.TOO_MANY_REQUESTS]: rateLimited,
 	},
 	security: SECURITY,
 	summary: "Fetch one ${singular.toLowerCase()}",
@@ -620,6 +637,11 @@ const surface = new OpenAPIHono<AppEnv>({ defaultHook: rejectInvalid });
 // Registered as a statement, not in the chain: Hono's \`.use\` returns \`Hono\`, so
 // chaining it would erase \`.openapi\` from the type.
 surface.use(requireUser);
+
+// Immediately after \`requireUser\`, which is what puts the actor this is keyed on
+// onto the context, and deliberately before \`requireOrg\`: a caller already over
+// budget is refused without spending a membership query on them.
+surface.use(rateLimit);
 
 // After \`requireUser\`, which resolved the session it reads. A member without an
 // active organization is refused here, so no handler below ever runs without a

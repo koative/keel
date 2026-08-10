@@ -2,6 +2,7 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { requireOrg, requireUser } from "@/lib/auth";
 import type { AppEnv } from "@/lib/context";
+import { rateLimit } from "@/lib/rate-limit";
 import { rejectInvalid } from "@/lib/validate";
 import { create, get, list, remove } from "./projects.handlers";
 import {
@@ -24,9 +25,14 @@ import {
  * what the session already resolved, so a signed-in member with no active
  * organization gets a 403 the SPA can route to onboarding, while an anonymous
  * caller still gets the 401 that tells it to sign in.
+ *
+ * `rateLimit` goes between the two. It is keyed on the actor `requireUser`
+ * resolved, and refusing before `requireOrg` means a caller already over budget
+ * does not cost a membership query as well.
  */
 export const internalProjectRoutes = new Hono<AppEnv>()
 	.use(requireUser)
+	.use(rateLimit)
 	.use(requireOrg)
 	.get("/", zValidator("query", projectPageSchema, rejectInvalid), list)
 	.post("/", zValidator("json", createProjectSchema, rejectInvalid), create)

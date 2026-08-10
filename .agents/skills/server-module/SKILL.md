@@ -74,8 +74,9 @@ expiry date, so it takes a deliberate edit. Then fill it in, in this order:
    frozen. Both guards apply here too, so every operation declares **403**
    alongside 401, and every operation carries `security: [{ sessionCookie: [] }]`
    — the scheme `app.ts` registers, stated per route so an operation that is ever
-   made anonymous has to say so. Every non-2xx response is declared with
-   `problemContent`, never `jsonContent`: errors are served as
+   made anonymous has to say so. `/v1` is rate limited as a whole, so every
+   operation also declares **429**, reads included. Every non-2xx response is
+   declared with `problemContent`, never `jsonContent`: errors are served as
    `application/problem+json`, and a generated SDK matches on the declared media
    type. Lists are keyset-paged like `projects`, returning `meta.nextCursor`
    beside the data. Only what a customer needs, and never a field you are

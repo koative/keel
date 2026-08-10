@@ -80,3 +80,21 @@ export const serviceUnavailable = (reason: string) =>
 		status: status.SERVICE_UNAVAILABLE,
 		why: reason,
 	});
+
+/**
+ * The caller is over its budget. Distinct from a 403: nothing about who they are
+ * is wrong, only how often, so the same request succeeds later untouched.
+ *
+ * `retryAfterSeconds` is carried on the error rather than set as a header here,
+ * because this factory has no response to attach one to — the single `failure`
+ * translation does that, which is the same reason every other status travels as a
+ * thrown value.
+ */
+export const tooManyRequests = (retryAfterSeconds: number) =>
+	createError({
+		code: "TOO_MANY_REQUESTS",
+		fix: `Wait ${retryAfterSeconds}s and retry; slow the caller down if this repeats`,
+		message: "Too many requests",
+		status: status.TOO_MANY_REQUESTS,
+		why: `Rate limit exceeded; the budget refills in ${retryAfterSeconds}s`,
+	});

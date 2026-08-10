@@ -41,6 +41,33 @@ export const env = createEnv({
 		/** `key=value` pairs, comma separated. For a collector that wants a token. */
 		OTLP_HEADERS: z.string().optional(),
 		/**
+		 * How many non-mutating requests one actor may make per minute, and — because
+		 * the bucket's capacity IS this number — the largest burst it may spend at
+		 * once before it has to wait for the refill of `value / 60` tokens a second.
+		 *
+		 * Per ACTOR, not per IP. The limiter runs behind the session guard, so the
+		 * key is an identity the caller cannot forge by changing networks, and one
+		 * misbehaving script does not throttle every colleague sharing an office NAT
+		 * address. Better Auth's own limiter still keys on IP for `/api/auth/*`,
+		 * where there is no actor yet.
+		 *
+		 * Reads are budgeted separately from writes, and far more generously: a list
+		 * endpoint costs a query, a write costs a query plus everything downstream of
+		 * it. Raising either is a deployment decision — the number that fits depends
+		 * on the database behind this app, so it is an env key and not a constant.
+		 */
+		RATE_LIMIT_READ_PER_MINUTE: z.coerce.number().int().positive().default(600),
+		/**
+		 * The same budget for `POST`, `PUT`, `PATCH` and `DELETE`, in its own bucket
+		 * per actor: capacity, largest burst, and `value / 60` tokens a second.
+		 *
+		 * An order of magnitude below the read budget on purpose. A write is the
+		 * expensive request and the one that leaves a row behind, so it is the one
+		 * worth bounding tightly; a client that legitimately needs more is doing
+		 * bulk work and should be given an endpoint that takes a batch.
+		 */
+		RATE_LIMIT_WRITE_PER_MINUTE: z.coerce.number().int().positive().default(60),
+		/**
 		 * Base64 of 32 random bytes — `openssl rand -base64 32`. Keys the
 		 * AES-256-GCM cipher in `@keel/crypto/seal` that encrypts third-party
 		 * secrets at rest.

@@ -101,6 +101,105 @@ rolling deploy does not drop work. `/health` is liveness and `/ready` checks
 Postgres; the container healthcheck polls `/ready`, because a process that cannot
 reach its database should leave the load balancer rather than be restarted.
 
+## Rate limiting
+
+Two layers, answering two different questions. Neither substitutes for the other.
+
+The **edge** — nginx, Traefik, Cloudflare — answers *is this a flood?* It sees the
+request before the app spends anything on it, and it can only key on an IP or a
+header, because a session cookie is opaque to it. The **application** answers *is
+this account over its share?* That needs an identity the edge does not have. An
+edge limit cannot tell two accounts behind one office NAT apart; an application
+limit cannot refuse traffic it is already parsing.
+
+The application limiter is keyed on the **actor**, never the IP, and it runs after
+`requireUser`, so the actor is always known. An actor key cannot be spoofed by
+rotating addresses, and it does not punish a whole office sharing one. Two buckets
+per actor, because a read and a write do not cost the same:
+
+| Setting | Default | Applies to |
+| --- | --- | --- |
+| `RATE_LIMIT_WRITE_PER_MINUTE` | 60 | `POST`, `PUT`, `PATCH`, `DELETE` |
+| `RATE_LIMIT_READ_PER_MINUTE` | 600 | every other method |
+
+Each number is both the per-minute budget and the largest burst: capacity is N and
+the bucket refills at N/60 tokens per second, so the burst equals the minute budget
+and recovers smoothly instead of at a window edge. `/api/*` and `/v1/*` are limited;
+`/health`, `/ready`, `/doc` and `/reference` are not, and `/api/auth/*` is left to
+Better Auth, which keys on IP because at sign-in there is no actor yet. A refusal is
+a thrown `tooManyRequests`, rendered by `app.onError` as the same problem+json every
+other failure uses — which is why every `/v1` operation declares **429**. Limited
+responses carry `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; a 429
+adds `Retry-After`.
+
+State is one Postgres row per bucket and **one statement per request** — a
+conditional counter upsert that refills from the row's own `updated_at`. Measured at
+0.011 ms on top of a 0.214 ms round trip: the round trip is the cost, and you already
+pay it. That is why there is no Redis here. The honest trigger for adding one is not
+throughput in the abstract, it is the point where a Postgres round trip per request
+starts to matter.
+
+**A rate limit is not a quota.** A rate limit is protection, so approximate is fine —
+which is exactly why N replicas sharing one Postgres row is right and N in-memory
+copies is not, since in-memory silently multiplies every limit by the replica count.
+A quota is billing: it must be exact and auditable, and it belongs in the domain
+beside the thing being counted, not in a middleware.
+
+**Edge configuration is documented, not shipped**, the same stance as TLS: whatever
+already owns your domain owns this. Both snippets below are per-IP flood control in
+front of the app, not a replacement for the limiter inside it.
+
+nginx, with `ngx_http_limit_req_module`:
+
+```nginx
+http {
+    # 10 MB holds roughly 160k IPv4 states; the least recently used is evicted.
+    limit_req_zone $binary_remote_addr zone=api:10m rate=20r/s;
+    # Rejections are 503 by default, which reads as "our fault".
+    limit_req_status 429;
+
+    server {
+        location /v1/ {
+            # nodelay serves excess up to burst immediately rather than queueing
+            # it; past burst the request is rejected.
+            limit_req zone=api burst=40 nodelay;
+            proxy_pass http://server:3000;
+        }
+    }
+}
+```
+
+Traefik, as Docker labels on the server service:
+
+```yaml
+labels:
+  - "traefik.http.middlewares.api-flood.ratelimit.average=20"
+  - "traefik.http.middlewares.api-flood.ratelimit.period=1s"
+  - "traefik.http.middlewares.api-flood.ratelimit.burst=40"
+  - "traefik.http.routers.server.middlewares=api-flood"
+```
+
+or the same middleware in dynamic configuration:
+
+```yaml
+http:
+  middlewares:
+    api-flood:
+      rateLimit:
+        average: 20
+        period: 1s
+        burst: 40
+```
+
+Traefik's rate is `average` divided by `period` and `burst` is the bucket size. With
+no `sourceCriterion` it groups by the request's remote address, so behind another
+proxy set `sourceCriterion.ipStrategy.depth` or Traefik will rate-limit that proxy
+rather than the client. Verified against the nginx `ngx_http_limit_req_module`
+reference (`nginx.org/en/docs/http/ngx_http_limit_req_module.html`) and the Traefik v3
+RateLimit middleware reference
+(`doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/ratelimit/`),
+not from memory.
+
 ## Tenancy
 
 Everything a tenant owns belongs to an **organization**, never directly to a user.

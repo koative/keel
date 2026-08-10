@@ -2,11 +2,12 @@ import { closePool, db } from "@keel/db";
 import { rateLimit } from "@keel/db/schema/auth";
 import { lt } from "drizzle-orm";
 import { sweepExpiredKeys } from "@/lib/idempotency.repository";
+import { sweepIdleBuckets } from "@/lib/rate-limit";
 
 /**
  * Periodic maintenance: `bun dist/tasks.mjs`.
  *
- * Two tables grow without bound and neither has an owner that prunes them, so
+ * Three tables grow without bound and none has an owner that prunes them, so
  * without this they are a slow disk leak that only shows up as a query plan going
  * bad months later.
  *
@@ -18,6 +19,17 @@ import { sweepExpiredKeys } from "@/lib/idempotency.repository";
 
 /** How long a rate-limit counter may sit untouched before it is meaningless. */
 const RATE_LIMIT_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long an actor's token bucket may sit untouched before it is dropped.
+ *
+ * Comfortably longer than the minute it takes any bucket to refill, so the sweep
+ * can never delete one that still holds a debt. Past that the row says nothing:
+ * a full bucket and a missing row grant a caller exactly the same thing, because
+ * `consume` inserts a fresh one at capacity. Deleting is therefore free, and not
+ * deleting means one row per actor per method class, forever.
+ */
+const IDLE_BUCKET_RETENTION_MS = 60 * 60 * 1000;
 
 const expiredKeys = await sweepExpiredKeys();
 
@@ -32,8 +44,12 @@ const staleCounters = await db
 	.where(lt(rateLimit.lastRequest, Date.now() - RATE_LIMIT_RETENTION_MS))
 	.returning({ id: rateLimit.id });
 
+const idleBuckets = await sweepIdleBuckets(
+	new Date(Date.now() - IDLE_BUCKET_RETENTION_MS)
+);
+
 process.stdout.write(
-	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} rate-limit counter(s)\n`
+	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s)\n`
 );
 
 // The pool holds an idle client for `idleTimeoutMillis`, and its timer keeps the
