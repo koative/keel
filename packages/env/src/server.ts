@@ -3,17 +3,25 @@ import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
 /**
- * The MAIL_FROM default, exported because it is not just a default: it is the
- * one sender value that cannot deliver to a stranger. `resolveMailConfig` in the
- * server rejects it on the `resend` driver, and that check has to compare
- * against this binding rather than a copy of the literal — two copies drift, and
- * the drift would silently disarm the guard.
+ * Resend's sandbox sender, exported because `resolveMailConfig` in the server
+ * rejects it on the `resend` driver: it is the one From address that cannot
+ * deliver to a stranger. `.env.example` ships it as the example MAIL_FROM, so the
+ * guard has to compare against this binding rather than a copy of the literal —
+ * two copies drift, and the drift would silently disarm the guard.
  */
 export const SANDBOX_MAIL_FROM = "Keel <onboarding@resend.dev>";
 
 /**
  * Validated at import, so a missing or malformed value fails at startup naming the
  * key — rather than surfacing as `undefined` three layers into a request.
+ *
+ * No key here carries a default. A value invented by this schema is a deployment
+ * decision made by the repository, and the ones worth having are exactly the ones
+ * that look harmless: `log` mail that delivers nothing, a `development` NODE_ENV on
+ * a server, a pool ceiling picked without seeing the database. So every key is
+ * either required — stated in `.env`, listed in `.env.example` — or optional and
+ * guarded at the point of use by a `resolve*` that throws naming it. Nothing in
+ * between, and nothing silent.
  */
 export const env = createEnv({
 	emptyStringAsUndefined: true,
@@ -30,56 +38,54 @@ export const env = createEnv({
 		 * as listed on openrouter.ai/models — so switching vendors is a variable,
 		 * not a deploy.
 		 *
-		 * Defaults to `openai/gpt-4o-mini`, chosen for being cheap rather than for
-		 * being good: a starter's default should make an accidental loop cost
-		 * cents. Name a stronger one when the work justifies it.
+		 * Optional for the same reason the key above is: AI is opt-in, and a
+		 * deployment that never enqueues an `ai.generate` job should not have to
+		 * name a model in order to boot. `resolveAi` throws naming this variable on
+		 * the first such job.
 		 */
-		AI_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
+		AI_MODEL: z.string().min(1).optional(),
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
 
-		/** Largest accepted request body, in bytes. */
-		BODY_LIMIT_BYTES: z.coerce
-			.number()
-			.int()
-			.min(1024)
-			.default(1024 * 1024),
+		/** Largest accepted request body, in bytes. 1048576 is one MiB. */
+		BODY_LIMIT_BYTES: z.coerce.number().int().min(1024),
 		CORS_ORIGIN: z.url(),
 
 		/** Pool ceiling per process. Postgres' max_connections is the real limit. */
-		DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
+		DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100),
 		DATABASE_URL: z.string().min(1),
 
 		/**
 		 * Where wide events go.
 		 *
-		 * `none` is the only setting that discards them, and it has to be chosen
-		 * explicitly: a production deployment that silently drops every event looks
-		 * identical to one with nothing to report.
+		 * `none` is the only setting that discards them, and every deployment has to
+		 * name one of the three: a production deployment that silently drops every
+		 * event looks identical to one with nothing to report. `fs` suits a laptop,
+		 * `otlp` a server, `none` a CI run.
 		 */
-		LOG_DRAIN: z.enum(["fs", "otlp", "none"]).default("fs"),
+		LOG_DRAIN: z.enum(["fs", "otlp", "none"]),
 		/**
 		 * How transactional mail leaves the process.
 		 *
-		 * `log` prints the whole message to stdout and sends nothing, which is the
-		 * default so that a clone of this repo can sign up, verify an address and
-		 * accept an invitation with no provider account. A deployment that wants
-		 * mail delivered has to say `resend` and supply RESEND_API_KEY.
+		 * `log` prints the whole message to stdout and sends nothing, which is what a
+		 * clone of this repo wants: sign up, verify an address and accept an
+		 * invitation with no provider account. `resend` delivers, and requires
+		 * RESEND_API_KEY. Neither may be assumed — a deployment that never chose is
+		 * one whose password resets go nowhere while it looks healthy.
 		 */
-		MAIL_DRIVER: z.enum(["log", "resend"]).default("log"),
+		MAIL_DRIVER: z.enum(["log", "resend"]),
 		/**
 		 * The From address on every message.
 		 *
-		 * Resend only accepts a sender on a domain verified for the account, so
-		 * this cannot be an arbitrary address in production — `onboarding@resend.dev`
-		 * is the sandbox sender every account starts with, and it can only be
-		 * delivered to the account owner. The display-name form `Acme <hi@acme.com>`
-		 * is accepted; a bare address is too.
+		 * Resend only accepts a sender on a domain verified for the account, so this
+		 * cannot be an arbitrary address in production — `onboarding@resend.dev` is
+		 * the sandbox sender every account starts with, it can only be delivered to
+		 * the account owner, and `resolveMailConfig` refuses to start the `resend`
+		 * driver on it. The display-name form `Acme <hi@acme.com>` is accepted; a
+		 * bare address is too.
 		 */
-		MAIL_FROM: z.string().min(1).default(SANDBOX_MAIL_FROM),
-		NODE_ENV: z
-			.enum(["development", "production", "test"])
-			.default("development"),
+		MAIL_FROM: z.string().min(1),
+		NODE_ENV: z.enum(["development", "production", "test"]),
 		/** Required when LOG_DRAIN is `otlp`. An OTLP/HTTP collector root, no path. */
 		OTLP_ENDPOINT: z.url().optional(),
 		/** `key=value` pairs, comma separated. For a collector that wants a token. */
@@ -100,7 +106,7 @@ export const env = createEnv({
 		 * it. Raising either is a deployment decision — the number that fits depends
 		 * on the database behind this app, so it is an env key and not a constant.
 		 */
-		RATE_LIMIT_READ_PER_MINUTE: z.coerce.number().int().positive().default(600),
+		RATE_LIMIT_READ_PER_MINUTE: z.coerce.number().int().positive(),
 		/**
 		 * The same budget for `POST`, `PUT`, `PATCH` and `DELETE`, in its own bucket
 		 * per actor: capacity, largest burst, and `value / 60` tokens a second.
@@ -110,7 +116,7 @@ export const env = createEnv({
 		 * worth bounding tightly; a client that legitimately needs more is doing
 		 * bulk work and should be given an endpoint that takes a batch.
 		 */
-		RATE_LIMIT_WRITE_PER_MINUTE: z.coerce.number().int().positive().default(60),
+		RATE_LIMIT_WRITE_PER_MINUTE: z.coerce.number().int().positive(),
 		/** Required when MAIL_DRIVER is `resend`. A Resend API key, `re_…`. */
 		RESEND_API_KEY: z.string().optional(),
 		/**
@@ -136,7 +142,7 @@ export const env = createEnv({
 		 * it for a deliberately long report, but raise it for that connection —
 		 * not for the pool the request path shares.
 		 */
-		STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+		STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive(),
 		/**
 		 * The bucket. Every key here is optional, including the provider: nothing in
 		 * this starter stores a file yet, so a deployment that never uploads one
@@ -216,7 +222,7 @@ export const env = createEnv({
 		 * a worker can go without noticing a shutdown signal — not a concurrency
 		 * setting. Add workers to go faster.
 		 */
-		WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(1000).default(10),
+		WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(1000),
 		/**
 		 * Idle wait between polls, in ms. This is the queue's worst-case latency
 		 * for a job that becomes due just after a poll found nothing.
@@ -225,7 +231,7 @@ export const env = createEnv({
 		 * so lowering it buys latency at the cost of a constant load that scales
 		 * with the number of replicas.
 		 */
-		WORKER_POLL_MS: z.coerce.number().int().min(50).default(1000),
+		WORKER_POLL_MS: z.coerce.number().int().min(50),
 	},
 	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
 });

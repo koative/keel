@@ -194,12 +194,12 @@ export function createAuth() {
 				 * Seven days, against the plugin's 48-hour default.
 				 *
 				 * 48 hours assumes the invitation lands in an inbox seconds after it is
-				 * sent. It now can — but the default `MAIL_DRIVER` is `log`, which
-				 * writes the message to the worker's stdout instead of sending it, so
-				 * on an unconfigured deployment an invitation still travels by hand:
-				 * somebody copies the link off the members screen into a chat, and it
-				 * waits for a human to read that chat. Two days is hostile to that, and
-				 * an expired invitation is indistinguishable from a broken one.
+				 * sent. It now can — but `MAIL_DRIVER=log` writes the message to the
+				 * worker's stdout instead of sending it, so on a deployment that chose it
+				 * an invitation still travels by hand: somebody copies the link off the
+				 * members screen into a chat, and it waits for a human to read that chat.
+				 * Two days is hostile to that, and an expired invitation is
+				 * indistinguishable from a broken one.
 				 *
 				 * A deployment that configures a real driver can bring this back toward
 				 * the plugin's 48 hours, and should: a longer window is a longer period

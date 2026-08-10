@@ -1,14 +1,16 @@
 name: keel
 
 # Deployable topology. `docker-compose.yml` is a development file and copying it to
-# a server is the mistake this file exists to prevent: it publishes Postgres on 5432
-# with the password `password`, and its healthcheck-gated `web` would happily serve
-# against a schema nobody migrated.
+# a server is the mistake this file exists to prevent: it publishes Postgres on the
+# host, pins `NODE_ENV=development`, and its healthcheck-gated `web` would happily
+# serve against a schema nobody migrated.
 #
 # Four deliberate differences from dev:
 #
-#   1. Secrets use the `${VAR:?...}` form, so a missing value fails the deploy
-#      instead of silently resolving to a development default.
+#   1. Every value arrives from the deploy environment in the `${VAR:?...}` form, so
+#      a missing one fails the deploy naming itself. Neither file defaults anything;
+#      what dev reads from `apps/server/.env`, this reads from the deploy's own
+#      environment, and the two never share a value by accident.
 #   2. Migrations run as a one-shot service that everything else gates on, so no
 #      process ever serves traffic against a stale schema and no replica races
 #      another to migrate.
@@ -29,22 +31,43 @@ x-app-env: &app-env
   # validated as a whole: the migrator reaches Postgres through the same `db`
   # singleton as the server, so it parses the same variables even though it only
   # uses DATABASE_URL.
+  #
+  # Required keys use `:?`. The `:-` form appears only for keys @keel/env itself
+  # marks optional, where it passes an absent variable through as absent rather
+  # than inventing a value — `emptyStringAsUndefined` turns the empty string back
+  # into `undefined` on the other side.
   BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
   BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
+  BODY_LIMIT_BYTES: ${BODY_LIMIT_BYTES:?BODY_LIMIT_BYTES is required}
   CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
-  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-keel}
-  LOG_DRAIN: ${LOG_DRAIN:-otlp}
+  DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:?DATABASE_POOL_MAX is required}
+  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+  LOG_DRAIN: ${LOG_DRAIN:?LOG_DRAIN is required, and on a server it is otlp}
+  # `resend` also needs RESEND_API_KEY, and a MAIL_FROM on a domain verified with
+  # Resend — the sandbox sender in .env.example reaches nobody but the account
+  # owner, and the server refuses to start on it.
+  MAIL_DRIVER: ${MAIL_DRIVER:?MAIL_DRIVER is required}
+  MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
   NODE_ENV: production
   OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
   OTLP_HEADERS: ${OTLP_HEADERS:-}
+  RATE_LIMIT_READ_PER_MINUTE: ${RATE_LIMIT_READ_PER_MINUTE:?RATE_LIMIT_READ_PER_MINUTE is required}
+  RATE_LIMIT_WRITE_PER_MINUTE: ${RATE_LIMIT_WRITE_PER_MINUTE:?RATE_LIMIT_WRITE_PER_MINUTE is required}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  STATEMENT_TIMEOUT_MS: ${STATEMENT_TIMEOUT_MS:?STATEMENT_TIMEOUT_MS is required}
   # Better Auth resolves the client IP from headers only. Leave this unset unless a
   # proxy you control rewrites the header, and read the README before setting it:
   # unset means one shared rate-limit bucket, set-but-forgeable means none at all.
+  # TRUSTED_PROXIES is required alongside it whenever the header can hold more than
+  # one address, which is the normal case.
   TRUSTED_IP_HEADER: ${TRUSTED_IP_HEADER:-}
+  TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
   # Pinned rather than inherited from the base image, because the Better Auth tables
   # use `timestamp` without a zone while domain tables use `timestamptz`. A base
   # image that changes its default would silently desync the two.
   TZ: UTC
+  WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:?WORKER_BATCH_SIZE is required}
+  WORKER_POLL_MS: ${WORKER_POLL_MS:?WORKER_POLL_MS is required}
 
 x-logging: &logging
   driver: json-file
@@ -150,7 +173,7 @@ services:
   postgres:
     image: postgres:18
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-keel}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_USER: postgres
       PGTZ: UTC

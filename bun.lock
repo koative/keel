@@ -204,6 +204,7 @@
       "devDependencies": {
         "@keel/config": "workspace:*",
         "@types/bun": "catalog:",
+        "dotenv": "catalog:",
         "typescript": "catalog:",
       },
     },

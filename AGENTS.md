@@ -57,6 +57,21 @@ payload is a rendered message holding a one-time link, so it is never logged and
 `dist/tasks.mjs` sweeps settled jobs. Packages import `enqueue` from `@keel/db/jobs`
 because they cannot reach app code; server-side callers keep using `@/lib/jobs`.
 
+## Configuration
+
+No environment variable has a default — not in `packages/env`, not in a compose
+file, not behind a `??` in code. A key is either required, and named in
+`.env.example`, or `.optional()` and guarded at the point of use by a `resolve*`
+that throws naming it (`resolveMailConfig`, `resolveDrain`, `resolveAi`,
+`resolveStorage`). Adding `.default(…)` to that schema is how a deployment ends up
+mailing to stdout or dropping every wide event while looking healthy; add the key to
+`.env.example`, `apps/server/.env`, `.env.test` and `docker-compose.prod.yml`'s
+`x-app-env` instead. Zod defaults on a *request* schema are unrelated and fine.
+
+Four env files, and `.env.test` is the only committed one: root `.env` for compose
+interpolation, `apps/server/.env`, `apps/web/.env`, `.env.test` for both bun:test
+preloads.
+
 ## Rules
 
 Everything mechanical is enforced by `bun run check`, not by this file — layer
