@@ -55,3 +55,8 @@ coverage
 .cache
 tmp
 temp
+
+# Bun leaves these behind when `bun build --compile` writes its output, and they
+# are the size of a whole runtime. One reached a commit and became 93% of this
+# repository's history, so the pattern is here rather than in a habit.
+*.bun-build
