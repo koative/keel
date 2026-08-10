@@ -5,6 +5,12 @@
  * the app, which is how the Docker deployment and Vercel previews are wired.
  * Extracted so `auth-client.ts` and `api.ts` cannot drift into disagreeing about
  * where the server is.
+ *
+ * Throws when a relative value has nothing to resolve against, rather than falling
+ * back to `http://localhost:3000`. That fallback was reachable in exactly one
+ * situation — a build with no window and no Vercel URL — and in that situation it
+ * baked a developer's laptop into the bundle, where it presents as a browser
+ * quietly failing to reach an API that is running.
  */
 export function serverOrigin(url: string): string {
 	const normalized = url.endsWith("/") ? url.slice(0, -1) : url;
@@ -32,5 +38,7 @@ export function serverOrigin(url: string): string {
 		return `${origin}${normalized}`;
 	}
 
-	return `http://localhost:3000${normalized}`;
+	throw new Error(
+		`VITE_SERVER_URL is relative ("${normalized}") and there is no origin to resolve it against: no window, and no Vercel deployment URL in the environment. Give this build an absolute VITE_SERVER_URL.`
+	);
 }

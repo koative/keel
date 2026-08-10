@@ -14,7 +14,7 @@ import { env } from "@keel/env/server";
  */
 export interface AiEnv {
 	AI_API_KEY?: string | undefined;
-	AI_MODEL: string;
+	AI_MODEL?: string | undefined;
 }
 
 /**
@@ -25,6 +25,15 @@ export function resolveAi(source: AiEnv = env): AiConfig {
 	if (!source.AI_API_KEY) {
 		throw new Error(
 			"AI_API_KEY is required to run an ai.generate job. Set AI_API_KEY to an OpenRouter API key, or stop enqueueing ai.generate."
+		);
+	}
+
+	// Neither half of the pair is defaulted, so both are guarded here. A model id
+	// invented by the schema would be this repository choosing which vendor gets
+	// billed for someone else's job.
+	if (!source.AI_MODEL) {
+		throw new Error(
+			"AI_MODEL is required to run an ai.generate job. Set AI_MODEL to an OpenRouter model id — `provider/model`, as listed on openrouter.ai/models — or stop enqueueing ai.generate."
 		);
 	}
 

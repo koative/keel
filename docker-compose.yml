@@ -1,5 +1,12 @@
 name: keel
 
+# The development stack. Every variable below is required and none of them is
+# defaulted here, so `docker compose up` needs a `.env` beside this file — copy
+# `.env.example` and fill it in. A default in this file would be a second answer to
+# a question `.env` already answers, and the two would disagree the first time
+# somebody moved a port: compose would come up on one number while `bun run dev`
+# used the other, and the CORS failure that follows names neither.
+#
 # Published ports are variables so a second checkout can run beside this one — a
 # boilerplate gets cloned repeatedly on one machine, and a fixed 3000 means the
 # second copy cannot come up at all. Only the HOST side moves; containers always
@@ -10,16 +17,28 @@ name: keel
 # Avoid 6000: Chrome refuses it as ERR_UNSAFE_PORT, which presents as a page that
 # will not load with nothing wrong on the server.
 
+# The three services that import @keel/env share this block. That schema is
+# validated as a whole, so the migrator parses every variable even though it only
+# uses DATABASE_URL — and NODE_ENV is here rather than inherited from the image,
+# which pins `production` for the deployable case. This stack serves http://localhost
+# from two origins; `development` is what better-auth reads to pick the cookie
+# SameSite that works there.
+x-app-env: &app-env
+  BETTER_AUTH_URL: http://localhost:${SERVER_PORT:?SERVER_PORT is required (see .env.example)}
+  CORS_ORIGIN: http://localhost:${WEB_PORT:?WEB_PORT is required (see .env.example)}
+  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (see .env.example)}@postgres:5432/keel
+  NODE_ENV: development
+
 services:
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        VITE_SERVER_URL: http://localhost:${SERVER_PORT:-3000}
+        VITE_SERVER_URL: http://localhost:${SERVER_PORT:?SERVER_PORT is required (see .env.example)}
     init: true
     ports:
-      - "${WEB_PORT:-3001}:80"
+      - "${WEB_PORT:?WEB_PORT is required (see .env.example)}:80"
     env_file:
       - path: apps/web/.env
         required: false
@@ -40,16 +59,15 @@ services:
       dockerfile: apps/server/Dockerfile
     init: true
     ports:
-      - "${SERVER_PORT:-3000}:3000"
-    # BETTER_AUTH_SECRET has no safe default, so it must come from here. Without
-    # it the container exits at startup naming the missing key — see .env.example.
+      - "${SERVER_PORT:?SERVER_PORT is required (see .env.example)}:3000"
+    # Everything @keel/env requires and this file does not pin comes from here —
+    # BETTER_AUTH_SECRET, MAIL_DRIVER, MAIL_FROM, LOG_DRAIN and the tuning numbers.
+    # Without the file the container exits at startup naming the first missing key,
+    # which is the same failure `bun run dev` gives; see .env.example.
     env_file:
       - path: apps/server/.env
         required: false
-    environment:
-      BETTER_AUTH_URL: http://localhost:${SERVER_PORT:-3000}
-      CORS_ORIGIN: http://localhost:${WEB_PORT:-3001}
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/keel
+    environment: *app-env
     # /ready, not /. Liveness and readiness answer different questions: / and
     # /health say the process is up and should not be restarted, /ready says it
     # can serve traffic — which means Postgres answered. Compose only has one
@@ -88,10 +106,7 @@ services:
     env_file:
       - path: apps/server/.env
         required: false
-    environment:
-      BETTER_AUTH_URL: http://localhost:${SERVER_PORT:-3000}
-      CORS_ORIGIN: http://localhost:${WEB_PORT:-3001}
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/keel
+    environment: *app-env
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,10 +123,7 @@ services:
     env_file:
       - path: apps/server/.env
         required: false
-    environment:
-      BETTER_AUTH_URL: http://localhost:${SERVER_PORT:-3000}
-      CORS_ORIGIN: http://localhost:${WEB_PORT:-3001}
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/keel
+    environment: *app-env
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -126,9 +138,9 @@ services:
     environment:
       POSTGRES_DB: keel
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (see .env.example)}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:?POSTGRES_PORT is required (see .env.example)}:5432"
     volumes:
       - keel_postgres_data:/var/lib/postgresql
     healthcheck:
@@ -142,6 +154,8 @@ services:
   # database. Storage is tmpfs so every `up` starts from an empty cluster and
   # a crashed test run cannot leave state behind. Guarded by a profile so
   # `docker compose up` does not start it.
+  #
+  # TEST_DATABASE_URL in `.env.test` has to agree with the password and port here.
   postgres-test:
     image: postgres:18
     container_name: keel-postgres-test
@@ -149,9 +163,9 @@ services:
     environment:
       POSTGRES_DB: keel_test
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (see .env.example)}
     ports:
-      - "${POSTGRES_TEST_PORT:-5433}:5432"
+      - "${POSTGRES_TEST_PORT:?POSTGRES_TEST_PORT is required (see .env.example)}:5432"
     tmpfs:
       - /var/lib/postgresql
     healthcheck:

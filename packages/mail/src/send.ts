@@ -12,12 +12,12 @@ export interface MailConfig {
 /**
  * Prints the whole message instead of sending it.
  *
- * This is the development default on purpose: a contributor who clones the repo
- * can sign up, verify an address and accept an invitation without registering
- * for a provider, verifying a domain, or holding an API key. The cost of that
- * convenience is that a deployment which never sets `MAIL_DRIVER` silently
- * delivers nothing, which is exactly why the value has to be named deliberately
- * in production — the default is chosen for the laptop, not for the server.
+ * This is what a laptop wants, which is not the same as being what a laptop gets:
+ * `MAIL_DRIVER` has no default, so a contributor who clones the repo names `log`
+ * and can then sign up, verify an address and accept an invitation without
+ * registering for a provider, verifying a domain, or holding an API key. Naming it
+ * is the point — a deployment that inherited this driver would silently deliver
+ * nothing, and it is the server, not the repository, that knows which it wants.
  *
  * The banner says NOT SENT in as many words so a log reader never reads a dump
  * here as evidence that mail is working.

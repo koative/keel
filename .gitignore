@@ -12,7 +12,9 @@ apps/server/types
 # Generated files
 apps/web/src/routeTree.gen.ts
 
-# Environment variables
+# Environment variables. `.env.test` is deliberately not listed: it is the committed
+# fixture both bun:test preloads read, it holds no secret, and every required key
+# has to come from somewhere now that nothing defaults one.
 .env
 .env*.local
 
