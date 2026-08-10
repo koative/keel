@@ -2,6 +2,23 @@ import { defineConfig } from "tsdown";
 
 export default defineConfig({
 	clean: true,
+	/**
+	 * Off, because nothing imports `dist/`.
+	 *
+	 * tsdown turns declarations on by default when a package.json advertises
+	 * types, and this one does — `exports["./app-type"]` points @keel/api-client
+	 * at `types/app.d.mts`. But that file comes from `tsdown.types.config.ts`,
+	 * built by a separate `build:types` task; `dist/` holds four executables that
+	 * bun runs, and a declaration beside them has no consumer.
+	 *
+	 * It was not free, either. Emitting them failed outright — a
+	 * `rolldown-plugin-dts` warning about eager mode, then six MISSING_EXPORT
+	 * errors for the `enqueue` re-export chain that crosses into `@keel/db/jobs`,
+	 * which `tsc --noEmit` accepts and `noExternal` then asks the dts bundler to
+	 * inline. So `bun run build` and every `docker build` behind it exited 1 for
+	 * output nobody reads.
+	 */
+	dts: false,
 	// Separate entries, because these are separate lifecycle steps: a rolling
 	// deploy migrates once, then starts N servers and M workers. Bundling the
 	// migrator into the server would mean either running it on every boot or
