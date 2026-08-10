@@ -15,6 +15,13 @@
       "when": 1786263962352,
       "tag": "0001_organizations_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786324844356,
+      "tag": "0002_zone_aware_timestamps_and_seek_index",
+      "breakpoints": true
     }
   ]
 }

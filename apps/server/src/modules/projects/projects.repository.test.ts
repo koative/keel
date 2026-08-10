@@ -7,7 +7,12 @@ import {
 	skipNotice,
 	testDbReady,
 } from "../../../test-db";
-import { deleteById, findById, insert } from "./projects.repository";
+import {
+	deleteById,
+	findById,
+	insert,
+	listByOrganization,
+} from "./projects.repository";
 
 const UUID = /^[0-9a-f-]{36}$/;
 
@@ -68,6 +73,39 @@ describe.skipIf(!ready)("projects.repository", () => {
 		expect(
 			await findById(created.id, await seedOrganization())
 		).toBeUndefined();
+	});
+
+	/**
+	 * The list needs its own case, and it is the more important of the two. Dropping
+	 * the tenancy predicate from `findById` breaks a test; dropping it from
+	 * `listByOrganization` broke nothing, because every other tenancy test reads a
+	 * single row by id. A collection endpoint is also the worse leak: one request
+	 * returns every tenant's rows rather than one guessed id.
+	 */
+	it("lists only the asking organization's rows", async () => {
+		const [mine, theirs] = await Promise.all([
+			seedOrganization(),
+			seedOrganization(),
+		]);
+		await insert({
+			createdBy: null,
+			description: null,
+			name: "Mine",
+			organizationId: mine,
+			slug: "mine",
+		});
+		await insert({
+			createdBy: null,
+			description: null,
+			name: "Theirs",
+			organizationId: theirs,
+			slug: "theirs",
+		});
+
+		const rows = await listByOrganization(mine, { cursor: null, limit: 25 });
+
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.name).toBe("Mine");
 	});
 
 	it("refuses to delete a row belonging to another organization", async () => {

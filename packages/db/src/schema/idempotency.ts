@@ -24,8 +24,10 @@ export const idempotencyKey = pgTable(
 		actorId: text("actor_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		createdAt: timestamp("created_at").defaultNow().notNull(),
-		expiresAt: timestamp("expires_at").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 		id: text("id")
 			.primaryKey()
 			.$defaultFn(() => crypto.randomUUID()),

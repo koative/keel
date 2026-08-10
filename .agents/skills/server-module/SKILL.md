@@ -30,8 +30,10 @@ decision below follows from it.
 bun run gen:module invoices
 ```
 
-That writes the file set, registers both surfaces in `apps/server/src/app.ts`,
-and leaves every file compiling. Then fill it in, in this order:
+That writes the file set, mounts the internal surface in
+`apps/server/src/app.ts`, and leaves every file compiling. `public/` is written
+but deliberately left unmounted: publishing a `/v1` endpoint is a promise with no
+expiry date, so it takes a deliberate edit. Then fill it in, in this order:
 
 1. **Table** — `packages/db/src/schema/<domain>.ts`, exported from
    `schema/index.ts`. Org-scoped like every tenant table: `organizationId` text
@@ -70,8 +72,14 @@ and leaves every file compiling. Then fill it in, in this order:
    the tenancy key.
 7. **Public surface** — `public/`. `OpenAPIHono` + `createRoute`, narrow schema,
    frozen. Both guards apply here too, so every operation declares **403**
-   alongside 401. Only what a customer needs, and never a field you are unwilling
-   to maintain forever.
+   alongside 401, and every operation carries `security: [{ sessionCookie: [] }]`
+   — the scheme `app.ts` registers, stated per route so an operation that is ever
+   made anonymous has to say so. Every non-2xx response is declared with
+   `problemContent`, never `jsonContent`: errors are served as
+   `application/problem+json`, and a generated SDK matches on the declared media
+   type. Lists are keyset-paged like `projects`, returning `meta.nextCursor`
+   beside the data. Only what a customer needs, and never a field you are
+   unwilling to maintain forever.
 8. **`index.ts`** — the module's only export. Nothing outside the directory may
    name a file inside it.
 

@@ -8,7 +8,7 @@
  *    first — an unsigned request must not be able to reach a parser, a query
  *    or a log line that an operator will later read as fact.
  * 2. Persist the raw payload exactly as received.
- * 3. Enqueue a job (`enqueue` in `./jobs.repository`) referencing that payload.
+ * 3. Enqueue a job (`enqueue` in `./jobs`) referencing that payload.
  * 4. Return 200.
  *
  * Parsing and every piece of real work belong to the worker, not to the request

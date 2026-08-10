@@ -1,4 +1,4 @@
-import { db } from "@keel/db";
+import { closePool, db } from "@keel/db";
 import { rateLimit } from "@keel/db/schema/auth";
 import { lt } from "drizzle-orm";
 import { sweepExpiredKeys } from "@/lib/idempotency.repository";
@@ -35,3 +35,10 @@ const staleCounters = await db
 process.stdout.write(
 	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} rate-limit counter(s)\n`
 );
+
+// The pool holds an idle client for `idleTimeoutMillis`, and its timer keeps the
+// event loop alive. Without this the sweep finishes in milliseconds and the
+// process then sits for another thirty seconds — so a cron firing every minute
+// spends half of it dead, and anything measuring task duration reports 30s for
+// 20ms of work.
+await closePool();

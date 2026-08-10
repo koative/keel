@@ -237,6 +237,10 @@
                     "message": "Only *.repository.ts may reach the database. Add the query there and call it through the injected store."
                   },
                   {
+                    "group": ["@/lib/*.repository", "@/lib/**/*.repository"],
+                    "message": "A shared repository is private to its own subsystem. The queue's public face is @/lib/jobs — import enqueue from there."
+                  },
+                  {
                     "group": [
                       "@keel/http/response",
                       "@keel/http/openapi",
@@ -281,12 +285,47 @@
                     "message": "An HTTP layer may not reach the database. Route the call through the module's service and repository."
                   },
                   {
+                    "group": ["@/lib/*.repository", "@/lib/**/*.repository"],
+                    "message": "A shared repository is private to its own subsystem. The queue's public face is @/lib/jobs — import enqueue from there."
+                  },
+                  {
                     "group": ["@/modules/*/*", "@/modules/*/**"],
                     "message": "A module's internals are private. Import the module root — @/modules/<name> — which resolves to its index.ts."
                   },
                   {
                     "group": ["../../*", "../../**"],
                     "message": "A relative import may not escape its module directory. Reach another module through @/modules/<name>, and shared code through @/lib/*."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      // Shared code and the process entry points. Disjoint from the three
+      // blocks above, which only ever match under src/modules/: without this
+      // block a worker or a lib file could reach into a module's internals and
+      // no override would be matching the file at all.
+      "includes": [
+        "apps/server/src/lib/**",
+        "apps/server/src/app.ts",
+        "apps/server/src/index.ts",
+        "apps/server/src/migrate.ts",
+        "apps/server/src/tasks.ts",
+        "apps/server/src/worker.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@/modules/*/*", "@/modules/*/**"],
+                    "message": "A module's internals are private. Import the module root — @/modules/<name> — which resolves to its index.ts."
                   }
                 ]
               }

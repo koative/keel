@@ -64,12 +64,35 @@ export interface ${singular} {
 }
 
 /**
+ * Where to resume a listing. Declared here rather than imported from
+ * \`@/lib/cursor\` for the same reason as the row type: the service does not know
+ * the caller speaks HTTP, so it cannot know a cursor is ever a string.
+ */
+export interface ${singular}Cursor {
+	createdAt: Date;
+	id: string;
+}
+
+export interface ${singular}Page {
+	cursor: ${singular}Cursor | null;
+	limit: number;
+}
+
+export interface ${singular}Listing {
+	items: ${singular}[];
+	nextCursor: ${singular}Cursor | null;
+}
+
+/**
  * The persistence this service needs, and nothing more. Every member takes the
  * organization, so a query that forgot the tenant is a type error.
  */
 export interface ${singular}Store {
 	findById: (id: string, organizationId: string) => Promise<${singular} | undefined>;
-	listByOrganization: (organizationId: string) => Promise<${singular}[]>;
+	listByOrganization: (
+		organizationId: string,
+		page: ${singular}Page
+	) => Promise<${singular}[]>;
 }
 
 /**
@@ -86,8 +109,29 @@ export interface ${singular}Context {
 	repository: ${singular}Store;
 }
 
-export async function list${pascal}(ctx: ${singular}Context): Promise<${singular}[]> {
-	return await ctx.repository.listByOrganization(ctx.organizationId);
+/**
+ * One page of the organization's rows, newest first.
+ *
+ * The store is asked for \`limit + 1\` rows. The extra row is never returned; its
+ * mere presence answers "is there another page?" without a second COUNT over the
+ * same predicate, which would double the work and could still disagree with the
+ * page under a concurrent insert.
+ */
+export async function list${pascal}(
+	page: ${singular}Page,
+	ctx: ${singular}Context
+): Promise<${singular}Listing> {
+	const rows = await ctx.repository.listByOrganization(ctx.organizationId, page);
+	const items = rows.slice(0, page.limit);
+	const last = items.at(-1);
+
+	return {
+		items,
+		nextCursor:
+			rows.length > page.limit && last
+				? { createdAt: last.createdAt, id: last.id }
+				: null,
+	};
 }
 
 /**
@@ -116,8 +160,20 @@ export async function get${singular}(id: string, ctx: ${singular}Context): Promi
 // Every statement must filter on organizationId in the same and(...) as the id.
 // Tenancy that lives in a WHERE clause cannot be skipped by a caller, and it is
 // what makes the service's 404 the truth rather than a disguise.
+//
+// listByOrganization is keyset-paged, like projects. When you implement it,
+// compare and order the BARE created_at column against the cursor bound and
+// give the table an index on (organizationId, createdAt desc, id desc) — a
+// wrapped column, date_trunc included, cannot be range-scanned, which costs the
+// seek the only thing it exists for. Store created_at at precision: 3 so the
+// column carries exactly what an ISO-8601 cursor can express and no truncation
+// is ever needed. Select limit + 1: the extra probe row is how the service
+// learns another page exists.
 
-export function listByOrganization(_organizationId: string): Promise<never[]> {
+export function listByOrganization(
+	_organizationId: string,
+	_page: { cursor: { createdAt: Date; id: string } | null; limit: number }
+): Promise<never[]> {
 	${UNIMPLEMENTED}
 }
 
@@ -165,9 +221,23 @@ export function fakeStore(seed: Seed${singular}[] = []): ${singular}Store {
 				)
 			);
 		},
-		listByOrganization(organizationId) {
+		listByOrganization(organizationId, page) {
+			// Stands in for the real query: the organization's rows newest first,
+			// seeking past the cursor, one more row than asked for so the service can
+			// tell there is a further page.
+			const after = page.cursor;
 			return Promise.resolve(
-				seed.filter((item) => item.organizationId === organizationId)
+				seed
+					.filter((item) => item.organizationId === organizationId)
+					.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+					.filter(
+						(item) =>
+							!after ||
+							item.createdAt < after.createdAt ||
+							(item.createdAt.getTime() === after.createdAt.getTime() &&
+								item.id < after.id)
+					)
+					.slice(0, page.limit + 1)
 			);
 		},
 	};
@@ -202,11 +272,29 @@ const ctx = (seed = [${camel}Row()]): ${singular}Context => ({
 	repository: fakeStore(seed),
 });
 
+/** One page big enough for every row a test seeds. */
+const PAGE = { cursor: null, limit: 25 };
+
 describe("${camel} service", () => {
 	it("lists only the active organization's rows", async () => {
-		const found = await list${pascal}(ctx([${camel}Row({ id: "ours" }), ${camel}Row({ id: "theirs", organizationId: OTHER_ORGANIZATION })]));
+		const listing = await list${pascal}(PAGE, ctx([${camel}Row({ id: "ours" }), ${camel}Row({ id: "theirs", organizationId: OTHER_ORGANIZATION })]));
 
-		expect(found.map((item) => item.id)).toEqual(["ours"]);
+		expect(listing.items.map((item) => item.id)).toEqual(["ours"]);
+	});
+
+	// The probe row is the whole mechanism: the store returns limit + 1 rows, and
+	// the extra one is what says another page exists without a second COUNT.
+	it("hands back a cursor only while another page is left", async () => {
+		const seed = [
+			${camel}Row({ id: "older" }),
+			${camel}Row({ createdAt: new Date("2026-01-02T00:00:00.000Z"), id: "newer" }),
+		];
+		const first = await list${pascal}({ cursor: null, limit: 1 }, ctx(seed));
+		const second = await list${pascal}({ cursor: first.nextCursor, limit: 1 }, ctx(seed));
+
+		expect(first.items.map((item) => item.id)).toEqual(["newer"]);
+		expect(second.items.map((item) => item.id)).toEqual(["older"]);
+		expect(second.nextCursor).toBeNull();
 	});
 
 	// A 403 would confirm the id exists, which is enough to walk another tenant's
@@ -222,6 +310,7 @@ describe("${camel} service", () => {
 `,
 
 	[`${dir}/internal/${name}.schema.ts`]: `import { z } from "zod";
+import { type Cursor, decodeCursor } from "@/lib/cursor";
 
 /**
  * The internal surface. Shaped for the frontend in this repo and free to change
@@ -236,6 +325,25 @@ export const ${camel}IdSchema = z.object({
 	id: z.uuid(),
 });
 
+/**
+ * Paging is validated, not merely parsed. \`limit\` is capped so one client cannot
+ * ask for the whole table, and a cursor that did not come from us is rejected
+ * here — decoding in the handler instead would turn a client typo into a 500.
+ */
+export const ${camel}PageSchema = z.object({
+	cursor: z
+		.string()
+		.transform(decodeCursor)
+		.refine(
+			(cursor: Cursor | null) => cursor !== null,
+			"Not a cursor from a previous page"
+		)
+		.optional(),
+	limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+export type ${singular}PageQuery = z.output<typeof ${camel}PageSchema>;
+
 export const ${camel}Schema = z.object({
 	createdAt: z.iso.datetime(),
 	createdBy: z.string().nullable(),
@@ -245,12 +353,13 @@ export const ${camel}Schema = z.object({
 export type ${singular}Response = z.infer<typeof ${camel}Schema>;
 `,
 
-	[`${dir}/internal/${name}.handlers.ts`]: `import { ok } from "@keel/http/response";
+	[`${dir}/internal/${name}.handlers.ts`]: `import { ok, page } from "@keel/http/response";
 import type { Context } from "hono";
 import type { AppEnv } from "@/lib/context";
+import { encodeCursor } from "@/lib/cursor";
 import { ${camel}Store } from "../${name}.repository";
 import { get${singular}, list${pascal}, type ${singular}, type ${singular}Context } from "../${name}.service";
-import type { ${singular}Response } from "./${name}.schema";
+import type { ${singular}PageQuery, ${singular}Response } from "./${name}.schema";
 
 /**
  * The composition root for this surface: the only layer that knows both the
@@ -274,10 +383,18 @@ const present = (item: ${singular}): ${singular}Response => ({
 });
 
 type IdContext = Context<AppEnv, string, { in: { param: { id: string } }; out: { param: { id: string } } }>;
+type ListContext = Context<AppEnv, string, { in: { query: Record<string, string> }; out: { query: ${singular}PageQuery } }>;
 
-export async function list(c: Context<AppEnv>) {
-	const items = await list${pascal}(contextOf(c));
-	return ok(c, items.map(present));
+export async function list(c: ListContext) {
+	const query = c.req.valid("query");
+	const listing = await list${pascal}(
+		{ cursor: query.cursor ?? null, limit: query.limit },
+		contextOf(c)
+	);
+
+	return page(c, listing.items.map(present), {
+		nextCursor: listing.nextCursor && encodeCursor(listing.nextCursor),
+	});
 }
 
 export async function get(c: IdContext) {
@@ -292,7 +409,7 @@ import { requireOrg, requireUser } from "@/lib/auth";
 import type { AppEnv } from "@/lib/context";
 import { rejectInvalid } from "@/lib/validate";
 import { get, list } from "./${name}.handlers";
-import { ${camel}IdSchema } from "./${name}.schema";
+import { ${camel}IdSchema, ${camel}PageSchema } from "./${name}.schema";
 
 /**
  * \`/api/${name}\` — the surface the bundled frontend talks to.
@@ -308,11 +425,12 @@ import { ${camel}IdSchema } from "./${name}.schema";
 export const internal${pascal}Routes = new Hono<AppEnv>()
 	.use(requireUser)
 	.use(requireOrg)
-	.get("/", list)
+	.get("/", zValidator("query", ${camel}PageSchema, rejectInvalid), list)
 	.get("/:id", zValidator("param", ${camel}IdSchema, rejectInvalid), get);
 `,
 
 	[`${dir}/public/${name}.v1.schema.ts`]: `import { z } from "zod";
+import { type Cursor, decodeCursor } from "@/lib/cursor";
 
 /**
  * The v1 customer contract. FROZEN.
@@ -338,14 +456,50 @@ export const ${camel}IdV1Schema = z.object({
 	id: z.uuid(),
 });
 
-export const ${camel}ListV1Schema = z.object({ data: z.array(${camel}V1Schema) });
+// The envelope every single-item response uses. Declared here so a route
+// definition names a schema rather than assembling one inline.
 export const ${camel}V1Envelope = z.object({ data: ${camel}V1Schema });
+
+/**
+ * Published under a name rather than inlined: \`.meta\` makes it a component in
+ * the document, so a generated SDK gets a reusable \`${singular}ListV1\` and the name
+ * itself is part of the frozen contract.
+ *
+ * \`meta\` ships with the first version on purpose. A client that has read an
+ * unpaged list would otherwise start silently losing rows the day a limit
+ * appears; adding the member later is additive only if it was always there.
+ */
+export const ${camel}ListV1Schema = z
+	.object({
+		data: z.array(${camel}V1Schema),
+		meta: z.object({ nextCursor: z.string().nullable() }),
+	})
+	.meta({ id: "${singular}ListV1" });
+
+/**
+ * Published query parameters. \`cursor\` is opaque and validated by decoding it:
+ * a token we did not issue is a 422 from the validator, never a 500 downstream.
+ */
+export const ${camel}PageV1Schema = z.object({
+	cursor: z
+		.string()
+		.transform(decodeCursor)
+		.refine(
+			(cursor: Cursor | null) => cursor !== null,
+			"Not a cursor from a previous page"
+		)
+		.optional(),
+	limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+export type ${singular}PageV1Query = z.output<typeof ${camel}PageV1Schema>;
 `,
 
 	[`${dir}/public/${name}.v1.handlers.ts`]: `import type { RouteHandler } from "@hono/zod-openapi";
-import { ok } from "@keel/http/response";
+import { ok, page } from "@keel/http/response";
 import type { Context } from "hono";
 import type { AppEnv } from "@/lib/context";
+import { encodeCursor } from "@/lib/cursor";
 import { ${camel}Store } from "../${name}.repository";
 import { get${singular}, list${pascal}, type ${singular}, type ${singular}Context } from "../${name}.service";
 import type { get${singular}Route, list${pascal}Route } from "./${name}.v1.routes";
@@ -369,8 +523,15 @@ const present = (item: ${singular}): ${singular}V1 => ({
 });
 
 export const list: RouteHandler<typeof list${pascal}Route, AppEnv> = async (c) => {
-	const items = await list${pascal}(contextOf(c));
-	return ok(c, items.map(present));
+	const query = c.req.valid("query");
+	const listing = await list${pascal}(
+		{ cursor: query.cursor ?? null, limit: query.limit },
+		contextOf(c)
+	);
+
+	return page(c, listing.items.map(present), {
+		nextCursor: listing.nextCursor && encodeCursor(listing.nextCursor),
+	});
 };
 
 export const get: RouteHandler<typeof get${singular}Route, AppEnv> = async (c) => {
@@ -381,13 +542,13 @@ export const get: RouteHandler<typeof get${singular}Route, AppEnv> = async (c) =
 
 	[`${dir}/public/${name}.v1.routes.ts`]: `import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { errorSchema } from "@keel/http/envelope";
-import { jsonContent } from "@keel/http/openapi";
+import { jsonContent, problemContent } from "@keel/http/openapi";
 import { status } from "@keel/http/status";
 import { requireOrg, requireUser } from "@/lib/auth";
 import type { AppEnv } from "@/lib/context";
 import { rejectInvalid } from "@/lib/validate";
 import { get, list } from "./${name}.v1.handlers";
-import { ${camel}IdV1Schema, ${camel}ListV1Schema, ${camel}V1Envelope } from "./${name}.v1.schema";
+import { ${camel}IdV1Schema, ${camel}ListV1Schema, ${camel}PageV1Schema, ${camel}V1Envelope } from "./${name}.v1.schema";
 
 /**
  * \`/v1/${name}\` — the customer-facing contract, and the only surface that appears
@@ -396,27 +557,49 @@ import { ${camel}IdV1Schema, ${camel}ListV1Schema, ${camel}V1Envelope } from "./
  */
 
 const TAGS = ["${pascal}"];
-const unauthorized = jsonContent(errorSchema, "No usable credentials");
+
+// Errors are \`application/problem+json\`, so every failure is declared with
+// \`problemContent\`. Declaring \`application/json\` for a body we do not send would
+// make a generated SDK look for a content type that never arrives.
+const unauthorized = problemContent(errorSchema, "No usable credentials");
 
 // Reachable on every operation: the session is valid but no organization is
 // active, so there is no tenant to read or write. Declared rather than left to
 // surprise an integration, and distinct from 404 — the caller is not being told
 // a row is missing, they are being told to pick an organization first.
-const forbidden = jsonContent(errorSchema, "The session has no active organization");
+const forbidden = problemContent(
+	errorSchema,
+	"The session has no active organization"
+);
+
+// Every endpoint here is behind \`requireUser\` and \`requireOrg\`. Stated per route
+// rather than as a document-level default so an operation that is ever made
+// anonymous has to say so explicitly instead of inheriting silence.
+const SECURITY = [{ sessionCookie: [] }];
 
 export const list${pascal}Route = createRoute({
+	description:
+		"One page of the active organization's ${name}, newest first. Pass \`meta.nextCursor\` back as \`cursor\` for the following page; a null \`nextCursor\` is the last page.",
 	method: "get",
 	path: "/",
+	request: { query: ${camel}PageV1Schema },
 	responses: {
-		[status.OK]: jsonContent(${camel}ListV1Schema, "The organization's ${name}"),
+		[status.OK]: jsonContent(${camel}ListV1Schema, "One page of ${name}"),
 		[status.UNAUTHORIZED]: unauthorized,
 		[status.FORBIDDEN]: forbidden,
+		[status.UNPROCESSABLE_ENTITY]: problemContent(
+			errorSchema,
+			"The limit is out of range, or the cursor did not come from us"
+		),
 	},
+	security: SECURITY,
 	summary: "List ${name}",
 	tags: TAGS,
 });
 
 export const get${singular}Route = createRoute({
+	description:
+		"A ${singular.toLowerCase()} belonging to another organization is reported as missing, not as forbidden.",
 	method: "get",
 	path: "/{id}",
 	request: { params: ${camel}IdV1Schema },
@@ -424,9 +607,10 @@ export const get${singular}Route = createRoute({
 		[status.OK]: jsonContent(${camel}V1Envelope, "The ${singular.toLowerCase()}"),
 		[status.UNAUTHORIZED]: unauthorized,
 		[status.FORBIDDEN]: forbidden,
-		[status.NOT_FOUND]: jsonContent(errorSchema, "No such ${singular.toLowerCase()} in this organization"),
-		[status.UNPROCESSABLE_ENTITY]: jsonContent(errorSchema, "The id is not a UUID"),
+		[status.NOT_FOUND]: problemContent(errorSchema, "No such ${singular.toLowerCase()} in this organization"),
+		[status.UNPROCESSABLE_ENTITY]: problemContent(errorSchema, "The id is not a UUID"),
 	},
+	security: SECURITY,
 	summary: "Fetch one ${singular.toLowerCase()}",
 	tags: TAGS,
 });
@@ -470,13 +654,17 @@ const appSource = await Bun.file(APP).text();
 // Anchored on statements the formatter cannot reshape, not on formatted text: the
 // import list gets wrapped once it grows past the line width, and an anchor that
 // depends on that wrapping fails the second time this script runs.
-const APP_ANCHOR = "const app = new OpenAPIHono";
 const CHAIN_ANCHOR = "const routes = app";
+
+// The head of the existing import block. `organizeImports` sorts a contiguous
+// run of imports but never moves one across an intervening statement, so an
+// import written anywhere below the block would stay stranded mid-file.
+const importStart = appSource.search(/^import /m);
 
 const chainStart = appSource.indexOf(CHAIN_ANCHOR);
 const chainEnd = chainStart === -1 ? -1 : appSource.indexOf(";", chainStart);
 
-if (!appSource.includes(APP_ANCHOR) || chainEnd === -1) {
+if (importStart === -1 || chainEnd === -1) {
 	console.error(
 		`Wrote ${Object.keys(files).length} files, but could not register the routes.`
 	);
@@ -496,14 +684,9 @@ if (!appSource.includes(APP_ANCHOR) || chainEnd === -1) {
 // running a generator.
 const mounted = `${appSource.slice(0, chainEnd)}\n\t.route("/api/${name}", internal${pascal}Routes)${appSource.slice(chainEnd)}`;
 
-// The import is placed just above `const app`; `organizeImports` moves it into
-// the import block on the format pass below.
 await Bun.write(
 	APP,
-	mounted.replace(
-		APP_ANCHOR,
-		`import { internal${pascal}Routes } from "@/modules/${name}";\n\n${APP_ANCHOR}`
-	)
+	`${mounted.slice(0, importStart)}import { internal${pascal}Routes } from "@/modules/${name}";\n${mounted.slice(importStart)}`
 );
 
 // Formatting here rather than leaving it to the author: an unformatted scaffold
@@ -521,6 +704,13 @@ Next, in this order:
      org-scoped like every tenant table: organizationId text notNull references
      organization.id onDelete cascade, createdBy text nullable references user.id
      onDelete "set null", and any unique index keyed on (organizationId, ...).
+     Timestamps are timestamp(name, { precision: 3, withTimezone: true }) for both
+     createdAt and updatedAt — precision so one table never carries two, and a zone
+     because a bare timestamp is compared against now() through the session's
+     TimeZone, which makes every scheduled comparison depend on the server's
+     locale. Add the paging index:
+     index(...).on(t.organizationId, t.createdAt.desc(), t.id.desc()), which is
+     what the keyset seek range-scans.
   2. packages/contracts/src/${name}.ts — derive and .pick() the API's fields.
      Leave organizationId out: the caller is already scoped to one.
   3. replace the throwing bodies in ${name}.repository.ts, filtering every

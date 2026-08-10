@@ -1,6 +1,6 @@
 import { db } from "@keel/db";
 import { user } from "@keel/db/schema/auth";
-import { organization } from "@keel/db/schema/organization";
+import { member, organization } from "@keel/db/schema/organization";
 import { eq, sql } from "drizzle-orm";
 
 /**
@@ -51,6 +51,22 @@ export async function seedOrganization(): Promise<string> {
 		name: "Test Org",
 		slug: id,
 	});
+	return id;
+}
+
+/**
+ * The row that makes a user a member, and therefore the row `requireOrg` reads to
+ * authorize a request. Seeded separately from the organization because the
+ * interesting case is the one where it is ABSENT while a session still points at
+ * the tenant — which is exactly how a removed member used to keep access.
+ */
+export async function seedMember(
+	organizationId: string,
+	userId: string,
+	role = "member"
+): Promise<string> {
+	const id = crypto.randomUUID();
+	await db.insert(member).values({ id, organizationId, role, userId });
 	return id;
 }
 

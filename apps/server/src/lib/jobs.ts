@@ -2,9 +2,19 @@ import { env } from "@keel/env/server";
 import { type ClaimedJob, claim, complete, fail } from "./jobs.repository";
 
 /**
- * The queue's execution half: what a job kind means, and what one pass of a
- * worker does. Everything that touches the table lives in `jobs.repository`.
+ * The queue's public face: what a job kind means, what one pass of a worker
+ * does, and how work gets in. Everything that touches the table lives in
+ * `jobs.repository`, which is private to this pair — callers reach the queue
+ * through this module, so its surface stays one import wide and a lint rule
+ * can say so.
  */
+
+// biome-ignore lint/performance/noBarrelFile: not a barrel — this module owns the worker loop and re-exports exactly one entry point so that `@/lib/jobs` is the whole queue API. The alternative the rule leaves, importing then exporting the binding, is what noExportedImports forbids.
+export {
+	type EnqueueInput,
+	type EnqueueResult,
+	enqueue,
+} from "./jobs.repository";
 
 /**
  * The payload is `unknown` on purpose. It comes back from jsonb and crossed a
@@ -34,13 +44,17 @@ export async function runOnce(
 	// batch.
 	for (const entry of claimed) {
 		// biome-ignore lint/performance/noAwaitInLoops: one job at a time is the intended throughput ceiling; a parallel batch would hold DATABASE_POOL_MAX connections that request handling also draws from.
-		await runJob(registry, entry);
+		await runJob(registry, entry, workerId);
 	}
 
 	return claimed.length;
 }
 
-async function runJob(registry: JobRegistry, entry: ClaimedJob): Promise<void> {
+async function runJob(
+	registry: JobRegistry,
+	entry: ClaimedJob,
+	workerId: string
+): Promise<void> {
 	const handler = registry.get(entry.kind);
 
 	// An unregistered kind is a deployment mistake — usually an old worker
@@ -48,18 +62,22 @@ async function runJob(registry: JobRegistry, entry: ClaimedJob): Promise<void> {
 	// on the row keeps it visible and retryable once the worker catches up,
 	// whereas throwing here would strand every job behind it in this batch.
 	if (handler === undefined) {
-		await fail(entry.id, `no handler registered for job kind "${entry.kind}"`);
+		await fail(
+			entry.id,
+			workerId,
+			`no handler registered for job kind "${entry.kind}"`
+		);
 		return;
 	}
 
 	try {
 		await handler(entry.payload);
-		await complete(entry.id);
+		await complete(entry.id, workerId);
 	} catch (error) {
 		// A handler is arbitrary application code and is expected to throw
 		// sometimes. Unhandled, the rejection would kill the worker process and
 		// leave every job it had claimed stuck in `running` with nothing left
 		// alive to release them.
-		await fail(entry.id, error);
+		await fail(entry.id, workerId, error);
 	}
 }

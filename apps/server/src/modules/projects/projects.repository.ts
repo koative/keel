@@ -26,22 +26,27 @@ import { and, desc, eq, sql } from "drizzle-orm";
  * inserted between two requests shifts everything down, so the client sees one
  * row twice and never sees another. Seeking from the last row actually read is
  * stable under concurrent writes and reads the same number of rows every page.
+ *
+ * That last claim only holds while the predicate and the ORDER BY name the bare
+ * column, so `project_organization_created_idx` can be range-scanned from the
+ * cursor. `created_at` is therefore stored at `precision: 3`: an ISO-8601 cursor
+ * carries milliseconds and nothing finer, and storing more than the cursor can
+ * express is what used to force a `date_trunc` on both sides — which is exactly
+ * what made the column unsargable, so every page read the organization's whole
+ * project set and top-N sorted it.
  */
 export async function listByOrganization(
 	organizationId: string,
 	page: { cursor: { createdAt: Date; id: string } | null; limit: number }
 ) {
-	// `created_at` is compared and ordered truncated to milliseconds because that
-	// is all an ISO-8601 cursor can carry, while the column stores microseconds.
-	// Comparing the raw column against a truncated bound would silently drop
-	// every row sharing the cursor's millisecond.
-	const createdAtMs = sql`date_trunc('milliseconds', ${project.createdAt})`;
-
-	// The bound is sent as text and cast rather than as a Date, because the
-	// driver would render a Date in the local zone and this column is
-	// `timestamp without time zone` holding UTC.
+	// The bound is a `Date` passed straight through. It can be, because the column
+	// is `timestamptz`: node-postgres renders a Date with an explicit offset and
+	// Postgres honours it, so the instant survives whatever the session's TimeZone
+	// happens to be. Against a bare `timestamp` column the same code silently
+	// shifted the bound by the server's offset, and that is the reason every
+	// timestamp in this schema carries a zone.
 	const seek = page.cursor
-		? sql`(${createdAtMs}, ${project.id}) < (${page.cursor.createdAt.toISOString()}::timestamptz at time zone 'UTC', ${page.cursor.id})`
+		? sql`(${project.createdAt}, ${project.id}) < (${page.cursor.createdAt}, ${page.cursor.id})`
 		: undefined;
 
 	// One row beyond the page. Its presence is what tells the service another
@@ -50,7 +55,7 @@ export async function listByOrganization(
 		.select()
 		.from(project)
 		.where(and(eq(project.organizationId, organizationId), seek))
-		.orderBy(desc(createdAtMs), desc(project.id))
+		.orderBy(desc(project.createdAt), desc(project.id))
 		.limit(page.limit + 1);
 }
 

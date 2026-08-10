@@ -27,7 +27,9 @@ export const job = pgTable(
 	"job",
 	{
 		attempts: integer("attempts").notNull().default(0),
-		createdAt: timestamp("created_at").defaultNow().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
 		/**
 		 * Opt-in collapse key. Null means "always enqueue"; Postgres treats every
 		 * null as distinct, so unkeyed jobs never collide with each other.
@@ -38,13 +40,13 @@ export const job = pgTable(
 			.$defaultFn(() => crypto.randomUUID()),
 		kind: text("kind").notNull(),
 		lastError: text("last_error"),
-		lockedAt: timestamp("locked_at"),
+		lockedAt: timestamp("locked_at", { withTimezone: true }),
 		lockedBy: text("locked_by"),
 		maxAttempts: integer("max_attempts").notNull().default(5),
 		payload: jsonb("payload").notNull(),
-		runAt: timestamp("run_at").defaultNow().notNull(),
+		runAt: timestamp("run_at", { withTimezone: true }).defaultNow().notNull(),
 		status: text("status", { enum: JOB_STATUSES }).notNull().default("pending"),
-		updatedAt: timestamp("updated_at")
+		updatedAt: timestamp("updated_at", { withTimezone: true })
 			.defaultNow()
 			.$onUpdate(() => /* @__PURE__ */ new Date())
 			.notNull(),

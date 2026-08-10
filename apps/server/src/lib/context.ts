@@ -25,5 +25,11 @@ export interface AppEnv {
 		activeOrganizationId: string | null;
 		actorId: string;
 		organizationId: string;
+		/**
+		 * The actor's role in `organizationId`, from the membership row `requireOrg`
+		 * had to read anyway to authorize the request. Present for the same reason
+		 * `organizationId` is: the guard ran or the handler was never reached.
+		 */
+		role: string;
 	};
 }

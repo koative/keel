@@ -43,9 +43,11 @@ A service never checks tenancy; it has no field to compare.
 
 Anything that can outlive a request goes in the `job` table and runs in
 `dist/worker.mjs`, never in a `setInterval` inside the API — a timer runs once per
-replica. Enqueue with a `dedupeKey` to collapse duplicate pending work. Webhook
-receivers verify over `await c.req.arrayBuffer()`, persist, enqueue, return 200; a
-re-stringified body produces a different digest and rejects every event.
+replica. `enqueue` from `@/lib/jobs` is the only way in — `jobs.repository` is
+private to that module — and takes a `dedupeKey` to collapse duplicate pending
+work. Webhook receivers verify over `await c.req.arrayBuffer()`, persist,
+enqueue, return 200; a re-stringified body produces a different digest and
+rejects every event.
 
 ## Rules
 

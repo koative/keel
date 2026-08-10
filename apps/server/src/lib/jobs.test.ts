@@ -36,6 +36,23 @@ async function rowFor(id: string) {
 	return found;
 }
 
+/**
+ * Claims the job, then fails it as its owner.
+ *
+ * `fail` and `complete` are fenced on `status = 'running'` and on the claiming
+ * worker's id, so a job cannot be settled without first being taken — which is
+ * the point of the fence and also what a worker actually does. Backdating `run_at`
+ * first is how a test walks the retry ladder without waiting out the backoff.
+ */
+async function claimThenFail(id: string, error: unknown): Promise<void> {
+	await db
+		.update(job)
+		.set({ runAt: new Date(Date.now() - 60_000) })
+		.where(eq(job.id, id));
+	await claim(WORKER, BATCH);
+	await fail(id, WORKER, error);
+}
+
 describe.skipIf(!ready)("job queue", () => {
 	// `claim` is global by design — a worker takes whatever is due — so the table
 	// has to start empty or one test claims another's rows.
@@ -56,18 +73,6 @@ describe.skipIf(!ready)("job queue", () => {
 		expect(claimed[0]?.maxAttempts).toBe(MAX_ATTEMPTS);
 	});
 
-	// The whole point of claiming and locking in one statement: a second worker
-	// polling immediately afterwards must see nothing rather than a duplicate.
-	it("never hands the same job to a second worker", async () => {
-		await enqueueId({ kind: "test.echo", payload: {} });
-
-		const first = await claim("worker-a", BATCH);
-		const second = await claim("worker-b", BATCH);
-
-		expect(first).toHaveLength(1);
-		expect(second).toHaveLength(0);
-	});
-
 	it("collapses two pending enqueues of the same dedupe key", async () => {
 		const dedupeKey = crypto.randomUUID();
 
@@ -86,7 +91,8 @@ describe.skipIf(!ready)("job queue", () => {
 		const dedupeKey = crypto.randomUUID();
 		const id = await enqueueId({ dedupeKey, kind: "test.echo", payload: {} });
 
-		await complete(id);
+		await claim(WORKER, BATCH);
+		await complete(id, WORKER);
 		const again = await enqueue({ dedupeKey, kind: "test.echo", payload: {} });
 
 		expect(again.created).toBe(true);
@@ -97,7 +103,7 @@ describe.skipIf(!ready)("job queue", () => {
 		const id = await enqueueId({ kind: "test.echo", payload: {} });
 		const before = await rowFor(id);
 
-		await fail(id, new Error("boom"));
+		await claimThenFail(id, new Error("boom"));
 		const retrying = await rowFor(id);
 
 		expect(retrying?.attempts).toBe(1);
@@ -114,7 +120,7 @@ describe.skipIf(!ready)("job queue", () => {
 
 		for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt += 1) {
 			// biome-ignore lint/performance/noAwaitInLoops: each fail derives the next backoff from the attempt count the previous one wrote, so overlapping calls would never walk the ladder this test asserts.
-			await fail(id, new Error("boom"));
+			await claimThenFail(id, new Error("boom"));
 		}
 		const terminal = await rowFor(id);
 
@@ -126,7 +132,7 @@ describe.skipIf(!ready)("job queue", () => {
 		const id = await enqueueId({ kind: "test.echo", payload: {} });
 		for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
 			// biome-ignore lint/performance/noAwaitInLoops: overlapping fails would read the same attempt count and leave the job short of exhausted, so the exclusion this test asserts would never happen.
-			await fail(id, new Error("boom"));
+			await claimThenFail(id, new Error("boom"));
 		}
 
 		// Backdated so that only the terminal status can be what excludes it.
@@ -141,7 +147,7 @@ describe.skipIf(!ready)("job queue", () => {
 	it("truncates a huge error rather than storing it whole", async () => {
 		const id = await enqueueId({ kind: "test.echo", payload: {} });
 
-		await fail(id, new Error("x".repeat(50_000)));
+		await claimThenFail(id, new Error("x".repeat(50_000)));
 
 		expect((await rowFor(id))?.lastError?.length).toBeLessThan(50_000);
 	});

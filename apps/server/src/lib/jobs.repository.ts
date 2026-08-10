@@ -1,6 +1,6 @@
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 /**
  * The only file allowed to touch Drizzle for the queue, mirroring the per-module
@@ -143,12 +143,22 @@ export async function claim(
 	}));
 }
 
-/** Marks a job done. Terminal: no index and no query looks at it again. */
-export async function complete(id: string): Promise<void> {
+/**
+ * Marks a job done. Terminal: no index and no query looks at it again.
+ *
+ * Fenced on `status = 'running'` and on the claiming worker's own id, so it can
+ * only settle a job this worker still owns. Keyed on `id` alone it would be a
+ * double-execution bug waiting for a reaper: the moment anything reclaims a
+ * stalled row, a merely slow original worker finishing its handler would mark
+ * done work a second worker is still running.
+ */
+export async function complete(id: string, workerId: string): Promise<void> {
 	await db
 		.update(job)
 		.set({ lockedAt: null, lockedBy: null, status: "done" })
-		.where(eq(job.id, id));
+		.where(
+			and(eq(job.id, id), eq(job.lockedBy, workerId), eq(job.status, "running"))
+		);
 }
 
 /**
@@ -158,8 +168,16 @@ export async function complete(id: string): Promise<void> {
  * can select again. A poison payload — one that will throw for every worker,
  * forever — therefore costs a bounded number of attempts instead of occupying a
  * worker in a loop that never converges.
+ *
+ * Fenced like `complete`, and here the guard also prevents resurrection: keyed on
+ * `id` alone this statement would set a `done` or `failed` row back to `pending`
+ * and re-arm `run_at`, putting a settled job back in the claim index.
  */
-export async function fail(id: string, error: unknown): Promise<void> {
+export async function fail(
+	id: string,
+	workerId: string,
+	error: unknown
+): Promise<void> {
 	await db.execute(sql`
 		update ${job}
 		set
@@ -179,5 +197,7 @@ export async function fail(id: string, error: unknown): Promise<void> {
 			end,
 			updated_at = now()
 		where ${job.id} = ${id}
+			and ${job.lockedBy} = ${workerId}
+			and ${job.status} = 'running'
 	`);
 }

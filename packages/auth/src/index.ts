@@ -163,6 +163,19 @@ export function createAuth() {
 				 * manual.
 				 */
 				invitationExpiresIn: 7 * 24 * 60 * 60,
+				/**
+				 * The plugin's default is not a number but no limit at all: when the
+				 * option is undefined its check falls through to a literal `false`
+				 * (`crud-org.mjs`), so nothing ever throws. `/organization/create`
+				 * draws only the global 100-per-10s bucket, which leaves one
+				 * authenticated caller free to write roughly ten organizations a
+				 * second, each with a member row, indefinitely.
+				 *
+				 * A ceiling rather than a rate: a human hits this only by trying to,
+				 * and raising it is one edit for a deployment that genuinely runs
+				 * agencies with many tenants.
+				 */
+				organizationLimit: 10,
 			}),
 		],
 		/**

@@ -23,7 +23,9 @@ import { user } from "./auth";
  * violate the NOT NULL.
  */
 export const organization = pgTable("organization", {
-	createdAt: timestamp("created_at").defaultNow().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true })
+		.defaultNow()
+		.notNull(),
 	id: text("id").primaryKey(),
 	logo: text("logo"),
 	/**
@@ -42,7 +44,9 @@ export const organization = pgTable("organization", {
 export const member = pgTable(
 	"member",
 	{
-		createdAt: timestamp("created_at").defaultNow().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
 		id: text("id").primaryKey(),
 		organizationId: text("organization_id")
 			.notNull()
@@ -71,9 +75,11 @@ export const member = pgTable(
 export const invitation = pgTable(
 	"invitation",
 	{
-		createdAt: timestamp("created_at").defaultNow().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
 		email: text("email").notNull(),
-		expiresAt: timestamp("expires_at").notNull(),
+		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 		id: text("id").primaryKey(),
 		/**
 		 * Cascades on user deletion, matching every other reference the plugin
