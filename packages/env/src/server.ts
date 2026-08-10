@@ -19,6 +19,22 @@ export const env = createEnv({
 	emptyStringAsUndefined: true,
 	runtimeEnv: process.env,
 	server: {
+		/**
+		 * An OpenRouter API key, `sk-or-…`. Optional because AI is opt-in: a
+		 * deployment that never enqueues an `ai.generate` job needs no account.
+		 * The first such job fails naming this variable if it is unset.
+		 */
+		AI_API_KEY: z.string().optional(),
+		/**
+		 * Which model answers. Any OpenRouter model id is valid — `provider/model`,
+		 * as listed on openrouter.ai/models — so switching vendors is a variable,
+		 * not a deploy.
+		 *
+		 * Defaults to `openai/gpt-4o-mini`, chosen for being cheap rather than for
+		 * being good: a starter's default should make an accidental loop cost
+		 * cents. Name a stronger one when the work justifies it.
+		 */
+		AI_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
 
@@ -121,6 +137,48 @@ export const env = createEnv({
 		 * not for the pool the request path shares.
 		 */
 		STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+		/**
+		 * The bucket. Every key here is optional, including the provider: nothing in
+		 * this starter stores a file yet, so a deployment that never uploads one
+		 * needs none of them, and demanding a bucket to boot would be a tax on
+		 * everyone else. `resolveStorage()` is the guard instead — it throws naming
+		 * whichever of these is missing, the first time storage is asked for, the
+		 * same way `resolveMailConfig` does for `RESEND_API_KEY`.
+		 */
+		STORAGE_ACCESS_KEY_ID: z.string().min(1).optional(),
+		/** Cloudflare account id. Required by, and only by, `STORAGE_PROVIDER=r2`. */
+		STORAGE_ACCOUNT_ID: z.string().min(1).optional(),
+		STORAGE_BUCKET: z.string().min(1).optional(),
+		/**
+		 * Bucket endpoint root, no key path. Required by `minio` and `custom`, which
+		 * have no fixed hostname; every other provider derives it, and setting it
+		 * there is an error rather than an override.
+		 */
+		STORAGE_ENDPOINT: z.url().optional(),
+		/**
+		 * Put the bucket in the URL path rather than in the hostname. Required by,
+		 * and only by, `custom` — every named provider already knows its answer.
+		 *
+		 * No default, because there is no answer that is right for both: MinIO and
+		 * R2 serve every bucket from one hostname and need it, AWS and Spaces put
+		 * the bucket in the host and reject it. The two forms sign differently, so a
+		 * wrong value is a 403 on every request rather than a redirect.
+		 */
+		STORAGE_FORCE_PATH_STYLE: z.stringbool().optional(),
+		/**
+		 * Which S3-compatible service holds the bucket. Selects a preset that knows
+		 * that provider's endpoint shape and addressing style, both copied from its
+		 * documentation — the two things everyone gets wrong once.
+		 *
+		 * `custom` is the escape hatch for anything not listed, and takes a raw
+		 * `STORAGE_ENDPOINT` and `STORAGE_FORCE_PATH_STYLE`.
+		 */
+		STORAGE_PROVIDER: z
+			.enum(["b2", "custom", "minio", "r2", "s3", "spaces"])
+			.optional(),
+		/** Provider region, e.g. `eu-west-1`, `us-west-004`, `nyc3`. Not used by r2. */
+		STORAGE_REGION: z.string().min(1).optional(),
+		STORAGE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
 		/**
 		 * The header a trusted proxy uses to report the real client IP, e.g.
 		 * `x-forwarded-for` or `cf-connecting-ip`.

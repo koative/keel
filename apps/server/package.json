@@ -14,6 +14,7 @@
   "dependencies": {
     "@hono/zod-openapi": "catalog:",
     "@hono/zod-validator": "catalog:",
+    "@keel/ai": "workspace:*",
     "@keel/auth": "workspace:*",
     "@keel/contracts": "workspace:*",
     "@keel/crypto": "workspace:*",
@@ -21,6 +22,7 @@
     "@keel/env": "workspace:*",
     "@keel/http": "workspace:*",
     "@keel/mail": "workspace:*",
+    "@keel/storage": "workspace:*",
     "@scalar/hono-api-reference": "catalog:",
     "better-auth": "catalog:",
     "dotenv": "catalog:",

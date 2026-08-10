@@ -29,6 +29,13 @@
       "when": 1786329158958,
       "tag": "0003_api_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786333038266,
+      "tag": "0004_ai_usage",
+      "breakpoints": true
     }
   ]
 }

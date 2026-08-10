@@ -1,0 +1,23 @@
+{
+  "name": "@keel/ai",
+  "type": "module",
+  "exports": {
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@keel/db": "workspace:*",
+    "@openrouter/ai-sdk-provider": "catalog:",
+    "ai": "catalog:"
+  },
+  "devDependencies": {
+    "@keel/config": "workspace:*",
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  }
+}
