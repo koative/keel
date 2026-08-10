@@ -159,6 +159,7 @@
         "packages/env/src/**",
         "packages/db/drizzle.config.ts",
         "apps/server/test-setup.ts",
+        "packages/mail/test-setup.ts",
         "apps/web/src/lib/auth-client.ts",
         "apps/web/vite.config.ts",
         "tools/**"

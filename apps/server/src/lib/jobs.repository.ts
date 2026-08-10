@@ -1,6 +1,6 @@
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
 
 /**
  * The only file allowed to touch Drizzle for the queue, mirroring the per-module
@@ -12,6 +12,19 @@ import { and, eq, sql } from "drizzle-orm";
  * agree on; scheduling against a local clock would make two replicas with a few
  * seconds of drift disagree about which jobs are due.
  */
+
+/**
+ * Enqueueing is the exception: it moved to `@keel/db/jobs` because `@keel/auth`
+ * and `@keel/mail` both enqueue, and a package cannot import app code. It is
+ * re-exported here so that server callers keep reaching the queue through this
+ * pair rather than learning a second import path.
+ */
+// biome-ignore lint/performance/noBarrelFile: not a barrel — this module owns the rest of the queue's SQL and forwards exactly one binding that had to move out of the app. The alternative the rule leaves, importing then exporting, is what noExportedImports forbids.
+export {
+	type EnqueueInput,
+	type EnqueueResult,
+	enqueue,
+} from "@keel/db/jobs";
 
 /** First retry delay. Doubles per attempt, so 1s, 2s, 4s, 8s... */
 const BACKOFF_BASE_MS = 1000;
@@ -38,55 +51,9 @@ export interface ClaimedJob {
 	payload: unknown;
 }
 
-export interface EnqueueInput {
-	dedupeKey?: string;
-	kind: string;
-	payload: unknown;
-	runAt?: Date;
-}
-
-export interface EnqueueResult {
-	/** False when an equal dedupe key was already pending, so nothing was added. */
-	created: boolean;
-	id: string | null;
-}
-
 function describeError(error: unknown): string {
 	const message = error instanceof Error ? error.message : String(error);
 	return message.slice(0, MAX_ERROR_LENGTH);
-}
-
-/**
- * Adds a job, unless `dedupeKey` names work that is already waiting.
- *
- * The conflict is swallowed rather than raised, which is the opposite of what
- * `withUniqueConflict` does for a user-facing insert: there a duplicate is the
- * caller's mistake and deserves a 409, here it is the whole point. Two requests
- * that both decide "this tenant needs re-indexing" should produce one re-index,
- * and the caller has nothing to fix.
- *
- * The conflict target is stated explicitly instead of a bare `do nothing`, which
- * would also silently swallow a primary-key collision — a real bug that must not
- * be reported as successful deduplication.
- */
-export async function enqueue(input: EnqueueInput): Promise<EnqueueResult> {
-	const [created] = await db
-		.insert(job)
-		.values({
-			dedupeKey: input.dedupeKey,
-			kind: input.kind,
-			payload: input.payload,
-			runAt: input.runAt,
-		})
-		.onConflictDoNothing({
-			target: job.dedupeKey,
-			// Repeats the partial index's predicate, which is how Postgres knows
-			// which index arbitrates the conflict.
-			where: sql`${job.status} = 'pending'`,
-		})
-		.returning({ id: job.id });
-
-	return { created: created !== undefined, id: created?.id ?? null };
 }
 
 /**
@@ -200,4 +167,29 @@ export async function fail(
 			and ${job.lockedBy} = ${workerId}
 			and ${job.status} = 'running'
 	`);
+}
+
+/**
+ * Drops every settled job older than the cutoff and reports how many went.
+ *
+ * Two reasons, and neither carries this on its own. The table has no owner that
+ * prunes it: `done` and `failed` are terminal, so without a sweep every job the
+ * system has ever run stays on disk forever and the claim index degrades behind
+ * a history nothing reads. And a settled job's payload is not inert — a
+ * `mail.send` row holds the rendered message, which for a verification or a
+ * password reset means a live one-time link sitting in a table long after the
+ * mail it belonged to was delivered.
+ *
+ * `failed` goes with `done` deliberately. A failed row is worth keeping while
+ * someone might still read `last_error` to find out what broke; it is not worth
+ * keeping forever, and it holds the same one-time link a delivered one does.
+ */
+export async function sweepSettledJobs(olderThan: Date): Promise<number> {
+	const removed = await db
+		.delete(job)
+		.where(
+			and(inArray(job.status, ["done", "failed"]), lt(job.updatedAt, olderThan))
+		)
+		.returning({ id: job.id });
+	return removed.length;
 }

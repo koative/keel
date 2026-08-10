@@ -1,7 +1,10 @@
 import { hostname } from "node:os";
 import { closePool } from "@keel/db";
 import { env } from "@keel/env/server";
+import { sendMail } from "@keel/mail/send";
+import { z } from "zod";
 import { type JobRegistry, runOnce } from "@/lib/jobs";
+import { resolveMailConfig } from "@/lib/mail";
 
 /**
  * Background worker entrypoint: `bun dist/worker.mjs`.
@@ -13,13 +16,37 @@ import { type JobRegistry, runOnce } from "@/lib/jobs";
  */
 
 /**
+ * A job payload is `unknown` and stays that way until something checks it: the
+ * row was written by whichever release was deployed at the time and rows outlive
+ * deploys, so the shape is a wire contract with the past, not a local type.
+ */
+const mailMessage = z.object({
+	html: z.string(),
+	subject: z.string(),
+	text: z.string(),
+	to: z.email(),
+});
+
+// Resolved once, at startup, so a deployment that asked for `resend` without a
+// key fails to boot rather than discovering it on the first sign-up.
+const mailConfig = resolveMailConfig();
+
+/**
  * Every job kind this worker can run.
  *
- * Exported and empty: a starter has no jobs of its own, and any example shipped
- * here would be an example every consumer has to find and delete. Add entries —
- * `registry.set("email.send", sendEmail)` — or assign a registry a module owns.
+ * `mail.send` is the only entry a starter ships, because delivery is the one
+ * piece of background work every consumer needs. Add others the same way —
+ * `registry.set("report.build", buildReport)` — or assign a registry a module
+ * owns.
  */
 export const registry: JobRegistry = new Map();
+
+registry.set("mail.send", async (payload, jobId) => {
+	// The job id, not a fresh value: it is the one identifier stable across
+	// retries, so a redelivery of an attempt that actually reached the provider
+	// is rejected as a duplicate instead of mailing a user twice.
+	await sendMail(mailConfig, mailMessage.parse(payload), jobId);
+});
 
 /**
  * How long the drain may take before the process is killed regardless.

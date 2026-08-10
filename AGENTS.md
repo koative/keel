@@ -19,6 +19,7 @@ Bun + Hono + Drizzle monorepo. Two API surfaces over one domain layer.
 - `packages/api-client` — `hc<AppType>` over a prebuilt declaration bundle.
 - `packages/{db,auth,env,ui,config}` — Drizzle, Better Auth, validated env, shadcn, tsconfig.
 - `packages/crypto` — `@keel/crypto/seal` (AES-256-GCM, versioned envelope), `@keel/crypto/equals`.
+- `packages/mail` — `@keel/mail/send` (`log` | `resend`), `@keel/mail/queue`, templates.
 
 ## Layers
 
@@ -48,6 +49,13 @@ private to that module — and takes a `dedupeKey` to collapse duplicate pending
 work. Webhook receivers verify over `await c.req.arrayBuffer()`, persist,
 enqueue, return 200; a re-stringified body produces a different digest and
 rejects every event.
+
+Mail is queued work, never inline: a hook calls `enqueueMail` and the worker sends,
+so a slow provider cannot slow sign-up and a failed send is retried instead of lost.
+`@keel/mail` is the only way out — nothing else talks to a provider. A `mail.send`
+payload is a rendered message holding a one-time link, so it is never logged and
+`dist/tasks.mjs` sweeps settled jobs. Packages import `enqueue` from `@keel/db/jobs`
+because they cannot reach app code; server-side callers keep using `@/lib/jobs`.
 
 ## Rules
 

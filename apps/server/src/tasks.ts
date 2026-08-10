@@ -2,12 +2,13 @@ import { closePool, db } from "@keel/db";
 import { rateLimit } from "@keel/db/schema/auth";
 import { lt } from "drizzle-orm";
 import { sweepExpiredKeys } from "@/lib/idempotency.repository";
+import { sweepSettledJobs } from "@/lib/jobs.repository";
 import { sweepIdleBuckets } from "@/lib/rate-limit";
 
 /**
  * Periodic maintenance: `bun dist/tasks.mjs`.
  *
- * Three tables grow without bound and none has an owner that prunes them, so
+ * Four tables grow without bound and none has an owner that prunes them, so
  * without this they are a slow disk leak that only shows up as a query plan going
  * bad months later.
  *
@@ -31,6 +32,22 @@ const RATE_LIMIT_RETENTION_MS = 24 * 60 * 60 * 1000;
  */
 const IDLE_BUCKET_RETENTION_MS = 60 * 60 * 1000;
 
+/**
+ * How long a settled job is kept before it is deleted.
+ *
+ * Three days, because the two pressures pull opposite ways. A `failed` row is
+ * the only place `last_error` lives, and a job that broke on Friday evening has
+ * to still be readable on Monday morning or the retention is theatre. Past that
+ * nobody is diagnosing from the table — they are reading wide events out of the
+ * drain, which is where the failure was also recorded.
+ *
+ * The other direction is the harder limit: a `mail.send` payload holds the
+ * rendered message, so a verification or reset row is a live one-time link at
+ * rest. Its token has expired many times over within three days; the row itself
+ * has no reason to outlive that.
+ */
+const SETTLED_JOB_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
+
 const expiredKeys = await sweepExpiredKeys();
 
 /**
@@ -48,8 +65,12 @@ const idleBuckets = await sweepIdleBuckets(
 	new Date(Date.now() - IDLE_BUCKET_RETENTION_MS)
 );
 
+const settledJobs = await sweepSettledJobs(
+	new Date(Date.now() - SETTLED_JOB_RETENTION_MS)
+);
+
 process.stdout.write(
-	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s)\n`
+	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s), ${settledJobs} settled job(s)\n`
 );
 
 // The pool holds an idle client for `idleTimeoutMillis`, and its timer keeps the

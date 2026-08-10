@@ -20,8 +20,13 @@ export {
  * The payload is `unknown` on purpose. It comes back from jsonb and crossed a
  * process boundary, so it has no more claim to a type than a request body does;
  * a handler parses it — with a contract schema — exactly as a route does.
+ *
+ * `jobId` is passed alongside it because it is the only stable identifier for
+ * this unit of work that survives a retry: the row keeps its id across every
+ * attempt. A handler calling a provider that accepts an idempotency key hands
+ * this over, and a redelivery then cannot produce a second side effect.
  */
-export type JobHandler = (payload: unknown) => Promise<void>;
+export type JobHandler = (payload: unknown, jobId: string) => Promise<void>;
 
 export type JobRegistry = Map<string, JobHandler>;
 
@@ -71,7 +76,7 @@ async function runJob(
 	}
 
 	try {
-		await handler(entry.payload);
+		await handler(entry.payload, entry.id);
 		await complete(entry.id, workerId);
 	} catch (error) {
 		// A handler is arbitrary application code and is expected to throw

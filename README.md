@@ -87,7 +87,7 @@ fails the suite rather than only the deploy.
 
 ## Going to production
 
-Four settings the defaults deliberately do not choose for you.
+Five settings the defaults deliberately do not choose for you.
 
 | Setting | Why it is not defaulted |
 | --- | --- |
@@ -95,6 +95,7 @@ Four settings the defaults deliberately do not choose for you.
 | `TRUSTED_IP_HEADER=x-forwarded-for` | Better Auth resolves the client IP from headers only. Unset, every caller shares one rate-limit bucket per path, so one aggressive client can lock everyone out of `/sign-in`. Set it only when a proxy you control rewrites the header — naming it on a directly reachable app lets a caller forge it. |
 | `bun run db:migrate` in the deploy | `db:push` diffs the live database against the schema and applies what it decides is needed, including dropping a column. That is a development tool. `tools/check-migrations.ts` fails the build when the two drift. |
 | `BETTER_AUTH_SECRET` | No safe default exists. |
+| `MAIL_DRIVER=resend` + `RESEND_API_KEY` + `MAIL_FROM` | The default `log` writes every message to stdout and sends nothing. That is right on a laptop and silent data loss on a server: verification and password reset both stop working while the deployment looks healthy. `MAIL_FROM` defaults to Resend's sandbox sender, which only reaches the account owner, so `resend` refuses to start on it. |
 
 `SIGTERM` drains in-flight requests, closes the connection pool, then exits — so a
 rolling deploy does not drop work. `/health` is liveness and `/ready` checks
@@ -214,10 +215,12 @@ tenant's row exists is itself a leak. Tenancy is filtered in the repository, in 
 same `and(...)` as the id, never checked in a service.
 
 Better Auth's organization plugin owns `organization`, `member` and `invitation`.
-There is no mailer, so an invitation is delivered by copying its link out of the
-members page. That is why invitations last 7 days instead of the plugin's 48 hours,
-and why re-inviting an address cancels the earlier one — you cannot un-paste a link,
-so cancelling the invitation is the only revocation there is.
+An invitation is emailed, and the members page still offers its link to copy —
+delivery to a colleague who is not yet in the system is worth a fallback that does
+not depend on a provider. Both are why invitations last 7 days instead of the
+plugin's 48 hours, and why re-inviting an address cancels the earlier one: you
+cannot un-paste a link, so cancelling the invitation is the only revocation there
+is.
 
 ## Background work
 
@@ -230,6 +233,17 @@ A `job` table in Postgres, claimed with `FOR UPDATE SKIP LOCKED`, so scaling is
 Failures retry with exponential backoff until `maxAttempts`, then stop — a poison
 message must not spin forever.
 
+```bash
+bun dist/tasks.mjs           # periodic maintenance, from whatever runs your cron
+```
+
+A settled job is terminal — no index and no query looks at `done` or `failed`
+again — so `tasks.mjs` deletes them after three days, alongside the other sweeps.
+Three days keeps `last_error` readable on Monday for something that broke on Friday
+without leaving payloads on disk indefinitely. A command rather than a timer inside
+the server: a `setInterval` sweeps once per replica, and never at all on a
+deployment that scales to zero.
+
 The load-bearing detail is one index: `dedupe_key` is unique only
 `WHERE status = 'pending'`. Enqueue collapses duplicate pending work, and the same
 key becomes usable again once the earlier job settles. A debounce and a mutex in one
@@ -241,6 +255,63 @@ signature over the **raw bytes** — a body that was parsed and re-stringified
 produces a different digest and rejects every event — then the receiver persists the
 payload, enqueues, and returns 200. Providers retry within seconds, and an LLM or
 outbound API call does not fit inside that window.
+
+## Transactional email
+
+Not a feature added for completeness. Two compromises elsewhere in this repo
+existed only because there was no mailer: invitations last seven days instead of
+the plugin's 48 hours, and the members page hands out a link to copy, both because
+a human had to carry the invitation to another channel by hand.
+
+**One adapter, one active implementation, chosen by `MAIL_DRIVER`.** `log` is the
+default and writes the whole message to stdout, so a contributor can sign up,
+verify an address and accept an invitation without registering with a provider or
+holding a key — the banner says `NOT SENT` in as many words, so a log reader never
+mistakes a dump for delivery. `resend` is the other, over `fetch`, with no SDK
+dependency. `MAIL_DRIVER=resend` without `RESEND_API_KEY` **stops the worker at
+startup** rather than degrading to `log`, the same stance as `LOG_DRAIN=otlp`
+without `OTLP_ENDPOINT`. Refusing to boot is louder and cheaper than a deployment
+that looks healthy until a user reports the mail never arrived.
+`MAIL_FROM` is guarded the same way: its default is Resend's sandbox sender, which
+delivers only to the account owner, so `resend` refuses to start until a verified
+domain replaces it.
+
+**Every send goes through the queue.** A Better Auth hook enqueues a `mail.send`
+job and returns; the worker calls the provider. Both halves of that matter: a
+provider having a slow afternoon must not make sign-up slow, and a send that fails
+must not be lost once the response has gone out — the queue retries it with the
+same backoff everything else gets. The job id is passed to Resend as its
+`Idempotency-Key`, so a retry after a timeout that had actually delivered replays
+the first outcome instead of putting a second copy in the inbox.
+
+Three Better Auth flows are wired: **address verification**, including on sign-up,
+**password reset**, and **organization invitations**. Nothing sends inline, and
+`@keel/mail` is the only way out — it reads no environment, so the app owns the one
+place `MAIL_DRIVER` becomes a config.
+
+A rendered message is what the job carries, because the token is minted inside the
+Better Auth request and cannot be derived again later. A pending `mail.send`
+payload is therefore **a live one-time link at rest**. It never goes into a wide
+event — the only thing that ever prints it is the `log` driver, where printing it
+is the entire point — and settled jobs are swept rather than kept, because a
+delivered verification mail has no business leaving its URL in a table for a year.
+
+**What is deliberately not here**, which matters as much as what is:
+
+- **No SMS, Telegram or Slack sink.** Operational alerts about failures are
+  observability, not notification. This repo already emits wide events to OTLP;
+  routing the interesting ones to Slack is an alerting rule in that tool, where the
+  thresholds and the on-call schedule already live, not a module here that would
+  duplicate them badly.
+- **No customer messaging.** Talking to customers over WhatsApp or Telegram is a
+  different subsystem shape entirely — inbound events as well as outbound sends,
+  session windows, per-provider template approval and capability limits. It is not
+  a second sink behind the same interface, and pretending it is produces an
+  abstraction that fits neither.
+- **No marketing or bulk email.** Mixing bulk into a transactional sender is how a
+  domain's reputation gets destroyed: one campaign's complaint rate starts landing
+  password resets in spam. Bulk belongs on its own domain and its own provider
+  account.
 
 ## Secrets at rest
 
@@ -272,6 +343,7 @@ packages/
   contracts/        Zod schemas derived from the Drizzle tables
   api-client/       hc<AppType> over a prebuilt declaration bundle
   db/ auth/ env/    Drizzle, Better Auth, validated environment
+  mail/ crypto/     transactional send (log | resend), AES-256-GCM sealing
   ui/ config/       shadcn components, shared tsconfig
 tools/              catalog drift, architecture rules, module generator
 ```

@@ -3,6 +3,15 @@ import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
 /**
+ * The MAIL_FROM default, exported because it is not just a default: it is the
+ * one sender value that cannot deliver to a stranger. `resolveMailConfig` in the
+ * server rejects it on the `resend` driver, and that check has to compare
+ * against this binding rather than a copy of the literal — two copies drift, and
+ * the drift would silently disarm the guard.
+ */
+export const SANDBOX_MAIL_FROM = "Keel <onboarding@resend.dev>";
+
+/**
  * Validated at import, so a missing or malformed value fails at startup naming the
  * key — rather than surfacing as `undefined` three layers into a request.
  */
@@ -33,6 +42,25 @@ export const env = createEnv({
 		 * identical to one with nothing to report.
 		 */
 		LOG_DRAIN: z.enum(["fs", "otlp", "none"]).default("fs"),
+		/**
+		 * How transactional mail leaves the process.
+		 *
+		 * `log` prints the whole message to stdout and sends nothing, which is the
+		 * default so that a clone of this repo can sign up, verify an address and
+		 * accept an invitation with no provider account. A deployment that wants
+		 * mail delivered has to say `resend` and supply RESEND_API_KEY.
+		 */
+		MAIL_DRIVER: z.enum(["log", "resend"]).default("log"),
+		/**
+		 * The From address on every message.
+		 *
+		 * Resend only accepts a sender on a domain verified for the account, so
+		 * this cannot be an arbitrary address in production — `onboarding@resend.dev`
+		 * is the sandbox sender every account starts with, and it can only be
+		 * delivered to the account owner. The display-name form `Acme <hi@acme.com>`
+		 * is accepted; a bare address is too.
+		 */
+		MAIL_FROM: z.string().min(1).default(SANDBOX_MAIL_FROM),
 		NODE_ENV: z
 			.enum(["development", "production", "test"])
 			.default("development"),
@@ -67,6 +95,8 @@ export const env = createEnv({
 		 * bulk work and should be given an endpoint that takes a batch.
 		 */
 		RATE_LIMIT_WRITE_PER_MINUTE: z.coerce.number().int().positive().default(60),
+		/** Required when MAIL_DRIVER is `resend`. A Resend API key, `re_…`. */
+		RESEND_API_KEY: z.string().optional(),
 		/**
 		 * Base64 of 32 random bytes — `openssl rand -base64 32`. Keys the
 		 * AES-256-GCM cipher in `@keel/crypto/seal` that encrypts third-party

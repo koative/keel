@@ -20,6 +20,7 @@
     "@keel/db": "workspace:*",
     "@keel/env": "workspace:*",
     "@keel/http": "workspace:*",
+    "@keel/mail": "workspace:*",
     "@scalar/hono-api-reference": "catalog:",
     "better-auth": "catalog:",
     "dotenv": "catalog:",

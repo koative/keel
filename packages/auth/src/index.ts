@@ -2,6 +2,12 @@ import { db } from "@keel/db";
 import * as authSchema from "@keel/db/schema/auth";
 import * as organizationSchema from "@keel/db/schema/organization";
 import { env } from "@keel/env/server";
+import { enqueueMail } from "@keel/mail/queue";
+import {
+	invitationEmail,
+	passwordResetEmail,
+	verificationEmail,
+} from "@keel/mail/templates";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { organization } from "better-auth/plugins";
@@ -136,6 +142,42 @@ export function createAuth() {
 		},
 		emailAndPassword: {
 			enabled: true,
+			/**
+			 * Enqueues and returns. Better Auth already wraps this call in
+			 * `runInBackgroundOrAwait`, precisely because a mailer is slow and the
+			 * response should not wait on it — so a durable queue is what that
+			 * wrapper was reaching for, not a workaround for it. The difference is
+			 * what happens when the provider is down: a backgrounded send is lost
+			 * with the request, a queued one is retried.
+			 *
+			 * The template is rendered here and the finished message is what travels.
+			 * `url` carries a one-time token minted inside this request and derivable
+			 * from nothing else, so nothing downstream could rebuild the message.
+			 */
+			sendResetPassword: async ({ url, user }) => {
+				// Keyed on the address, not the token: "forgot password" clicked three
+				// times is three tokens and should still be one email. The key frees
+				// itself as soon as the pending job is claimed, so an honest retry
+				// minutes later sends again.
+				await enqueueMail(
+					passwordResetEmail({ to: user.email, url }),
+					`mail:password-reset:${user.email}`
+				);
+			},
+		},
+		emailVerification: {
+			/**
+			 * On by default because the alternative is an account whose address has
+			 * never been proven: password reset then mails a stranger, and every
+			 * invitation matched by address reaches the wrong inbox.
+			 */
+			sendOnSignUp: true,
+			sendVerificationEmail: async ({ url, user }) => {
+				await enqueueMail(
+					verificationEmail({ to: user.email, url }),
+					`mail:verification:${user.email}`
+				);
+			},
 		},
 		plugins: [
 			organization({
@@ -151,16 +193,18 @@ export function createAuth() {
 				/**
 				 * Seven days, against the plugin's 48-hour default.
 				 *
-				 * 48 hours assumes an invitation email lands in an inbox seconds after
-				 * it is sent. There is no mailer in keel, so an invitation travels out
-				 * of band: somebody copies the link and pastes it into a chat, and it
+				 * 48 hours assumes the invitation lands in an inbox seconds after it is
+				 * sent. It now can — but the default `MAIL_DRIVER` is `log`, which
+				 * writes the message to the worker's stdout instead of sending it, so
+				 * on an unconfigured deployment an invitation still travels by hand:
+				 * somebody copies the link off the members screen into a chat, and it
 				 * waits for a human to read that chat. Two days is hostile to that, and
 				 * an expired invitation is indistinguishable from a broken one.
 				 *
-				 * This should come back down toward the default once a mailer exists —
-				 * a longer window is a longer period in which a leaked link is still
-				 * redeemable, and that cost is only worth paying while delivery is
-				 * manual.
+				 * A deployment that configures a real driver can bring this back toward
+				 * the plugin's 48 hours, and should: a longer window is a longer period
+				 * in which a leaked link is still redeemable, and that cost is only
+				 * worth paying while delivery is manual.
 				 */
 				invitationExpiresIn: 7 * 24 * 60 * 60,
 				/**
@@ -176,6 +220,35 @@ export function createAuth() {
 				 * agencies with many tenants.
 				 */
 				organizationLimit: 10,
+				/**
+				 * Better Auth mints the invitation but builds no URL for it, so the
+				 * link is assembled here against CORS_ORIGIN: the route that redeems
+				 * it is a page in the SPA, not an endpoint on this API.
+				 *
+				 * Enqueues and returns, like the two hooks above. An invitation that
+				 * failed to mail is worse than the others — the invited person has no
+				 * account yet, so there is no "resend" they can reach for themselves —
+				 * which makes the retry the queue provides the point.
+				 */
+				sendInvitationEmail: async (data) => {
+					const url = new URL(
+						`/accept-invitation/${data.id}`,
+						env.CORS_ORIGIN
+					).toString();
+
+					// Keyed on the invitation, not the address: re-inviting cancels the
+					// old invitation and mints a new id, and that new link is a
+					// different message that must not collapse into the pending one.
+					await enqueueMail(
+						invitationEmail({
+							inviter: data.inviter.user.name || data.inviter.user.email,
+							organization: data.organization.name,
+							to: data.email,
+							url,
+						}),
+						`mail:invitation:${data.id}`
+					);
+				},
 			}),
 		],
 		/**

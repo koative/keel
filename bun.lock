@@ -29,6 +29,7 @@
         "@keel/db": "workspace:*",
         "@keel/env": "workspace:*",
         "@keel/http": "workspace:*",
+        "@keel/mail": "workspace:*",
         "@scalar/hono-api-reference": "catalog:",
         "better-auth": "catalog:",
         "dotenv": "catalog:",
@@ -99,6 +100,7 @@
       "dependencies": {
         "@keel/db": "workspace:*",
         "@keel/env": "workspace:*",
+        "@keel/mail": "workspace:*",
         "better-auth": "catalog:",
         "dotenv": "catalog:",
         "zod": "catalog:",
@@ -172,6 +174,17 @@
         "evlog": "catalog:",
         "hono": "catalog:",
         "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@keel/config": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/mail": {
+      "name": "@keel/mail",
+      "dependencies": {
+        "@keel/db": "workspace:*",
       },
       "devDependencies": {
         "@keel/config": "workspace:*",
@@ -654,6 +667,8 @@
     "@keel/env": ["@keel/env@workspace:packages/env"],
 
     "@keel/http": ["@keel/http@workspace:packages/http"],
+
+    "@keel/mail": ["@keel/mail@workspace:packages/mail"],
 
     "@keel/ui": ["@keel/ui@workspace:packages/ui"],
 

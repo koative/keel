@@ -1,9 +1,17 @@
 /**
- * There is no mailer, so an invitation is delivered by copying this link out of
- * the members screen and sending it by hand. It is built against the SPA origin
- * rather than the API origin because the route that consumes it lives here, and
- * it is the reason invitations are given a seven-day lifetime: a human has to
- * carry the link across to another channel.
+ * The invitation link, as shown on the members screen.
+ *
+ * A mailer now exists, so this is no longer the only way an invitation travels —
+ * but it is not redundant either, and both reasons matter. The default
+ * `MAIL_DRIVER` is `log`, which writes the message to stdout rather than sending
+ * it, so on a deployment that has not configured a provider this is still the
+ * whole delivery mechanism. And even with a real one, mail goes missing: a wrong
+ * address, a spam folder, a corporate filter. Being able to hand the link over
+ * directly is what keeps that from becoming a support conversation.
+ *
+ * Built against the SPA origin rather than the API origin because the route that
+ * consumes it lives here. It is also why invitations last seven days: whenever a
+ * human is the transport, an expiry measured in hours is hostile.
  */
 export function invitationLink(invitationId: string): string {
 	return new URL(
