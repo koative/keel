@@ -54,6 +54,7 @@ written.
 
 ```bash
 bun install
+cp .env.example .env                # docker compose reads this one
 cp .env.example apps/server/.env    # fill in BETTER_AUTH_SECRET
 cp .env.example apps/web/.env
 bun run db:start && bun run db:push
@@ -87,15 +88,19 @@ fails the suite rather than only the deploy.
 
 ## Going to production
 
-Five settings the defaults deliberately do not choose for you.
+Nothing in this repository defaults an environment variable — not the Zod schema in
+`packages/env`, not the compose files, not the code. So `.env.example` is a
+checklist rather than a suggestion: every key it lists uncommented has to be
+stated, and a missing one fails at startup naming itself. Five of those choices are
+worth spelling out, because the wrong answer is invisible on a laptop.
 
-| Setting | Why it is not defaulted |
+| Setting | Why the repository will not pick it for you |
 | --- | --- |
 | `LOG_DRAIN=otlp` + `OTLP_ENDPOINT` | `fs` writes into the container filesystem. Wide events are the whole observability story; shipping without a drain discards every one of them. |
 | `TRUSTED_IP_HEADER=x-forwarded-for` | Better Auth resolves the client IP from headers only. Unset, every caller shares one rate-limit bucket per path, so one aggressive client can lock everyone out of `/sign-in`. Set it only when a proxy you control rewrites the header — naming it on a directly reachable app lets a caller forge it. |
 | `bun run db:migrate` in the deploy | `db:push` diffs the live database against the schema and applies what it decides is needed, including dropping a column. That is a development tool. `tools/check-migrations.ts` fails the build when the two drift. |
-| `BETTER_AUTH_SECRET` | No safe default exists. |
-| `MAIL_DRIVER=resend` + `RESEND_API_KEY` + `MAIL_FROM` | The default `log` writes every message to stdout and sends nothing. That is right on a laptop and silent data loss on a server: verification and password reset both stop working while the deployment looks healthy. `MAIL_FROM` defaults to Resend's sandbox sender, which only reaches the account owner, so `resend` refuses to start on it. |
+| `BETTER_AUTH_SECRET` | The signing key of a deployment is not something a repository hands out. |
+| `MAIL_DRIVER=resend` + `RESEND_API_KEY` + `MAIL_FROM` | `log` writes every message to stdout and sends nothing. That is right on a laptop and silent data loss on a server: verification and password reset both stop working while the deployment looks healthy. `MAIL_FROM` has to be an address on a domain verified with Resend — the sandbox sender `.env.example` ships reaches nobody but the account owner, so `resend` refuses to start on it. |
 
 `SIGTERM` drains in-flight requests, closes the connection pool, then exits — so a
 rolling deploy does not drop work. `/health` is liveness and `/ready` checks
@@ -118,7 +123,7 @@ The application limiter is keyed on the **actor**, never the IP, and it runs aft
 rotating addresses, and it does not punish a whole office sharing one. Two buckets
 per actor, because a read and a write do not cost the same:
 
-| Setting | Default | Applies to |
+| Setting | Laptop value | Applies to |
 | --- | --- | --- |
 | `RATE_LIMIT_WRITE_PER_MINUTE` | 60 | `POST`, `PUT`, `PATCH`, `DELETE` |
 | `RATE_LIMIT_READ_PER_MINUTE` | 600 | every other method |
@@ -263,18 +268,19 @@ existed only because there was no mailer: invitations last seven days instead of
 the plugin's 48 hours, and the members page hands out a link to copy, both because
 a human had to carry the invitation to another channel by hand.
 
-**One adapter, one active implementation, chosen by `MAIL_DRIVER`.** `log` is the
-default and writes the whole message to stdout, so a contributor can sign up,
-verify an address and accept an invitation without registering with a provider or
-holding a key — the banner says `NOT SENT` in as many words, so a log reader never
-mistakes a dump for delivery. `resend` is the other, over `fetch`, with no SDK
-dependency. `MAIL_DRIVER=resend` without `RESEND_API_KEY` **stops the worker at
-startup** rather than degrading to `log`, the same stance as `LOG_DRAIN=otlp`
-without `OTLP_ENDPOINT`. Refusing to boot is louder and cheaper than a deployment
-that looks healthy until a user reports the mail never arrived.
-`MAIL_FROM` is guarded the same way: its default is Resend's sandbox sender, which
-delivers only to the account owner, so `resend` refuses to start until a verified
-domain replaces it.
+**One adapter, one active implementation, chosen by `MAIL_DRIVER`.** `log` writes
+the whole message to stdout, so a contributor can sign up, verify an address and
+accept an invitation without registering with a provider or holding a key — the
+banner says `NOT SENT` in as many words, so a log reader never mistakes a dump for
+delivery. `resend` is the other, over `fetch`, with no SDK dependency. Neither is a
+default, because a deployment that never chose is one whose password resets go
+nowhere while it looks healthy. `MAIL_DRIVER=resend` without `RESEND_API_KEY`
+**stops the worker at startup** rather than degrading to `log`, the same stance as
+`LOG_DRAIN=otlp` without `OTLP_ENDPOINT`. Refusing to boot is louder and cheaper
+than a deployment that looks healthy until a user reports the mail never arrived.
+`MAIL_FROM` is guarded the same way: `resend` refuses to start on Resend's sandbox
+sender, which delivers only to the account owner, so a verified domain has to
+replace it.
 
 **Every send goes through the queue.** A Better Auth hook enqueues a `mail.send`
 job and returns; the worker calls the provider. Both halves of that matter: a
