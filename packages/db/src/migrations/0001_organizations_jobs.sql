@@ -58,7 +58,38 @@ ALTER TABLE "project" DROP CONSTRAINT "project_owner_id_user_id_fk";
 DROP INDEX "project_owner_slug_idx";--> statement-breakpoint
 DROP INDEX "project_ownerId_idx";--> statement-breakpoint
 ALTER TABLE "session" ADD COLUMN "active_organization_id" text;--> statement-breakpoint
-ALTER TABLE "project" ADD COLUMN "organization_id" text NOT NULL;--> statement-breakpoint
+--> statement-breakpoint
+--> Hand-added. `organization_id` is NOT NULL on purpose, but the original
+--> `ADD COLUMN ... NOT NULL` here aborted on any 0000-era database: 0000's
+--> `project` table already holds rows, and Postgres refuses to add a NOT NULL
+--> column to a non-empty table, halting the whole upgrade with no recovery.
+--> Committed migrations are frozen history, yet the only mechanical fix for
+--> such a database is making 0001 itself apply, and a fresh install ends with
+--> the identical final schema. The drift gate cannot tell the difference,
+--> exactly like the `DROP NOT NULL` above, and this file already carries that
+--> hand edit. So the column is added nullable, backfilled, then tightened:
+--> one organization per distinct creator (a 0000-era project's `created_by`
+--> is its old NOT NULL `owner_id`, so every row has one), with an owner
+--> member row. Ids and slugs derive from the user id, so the backfill is
+--> deterministic and idempotent.
+ALTER TABLE "project" ADD COLUMN "organization_id" text;
+--> statement-breakpoint
+INSERT INTO "organization" ("id", "slug", "name")
+SELECT 'org_' || "user"."id", "user"."id", 'Default'
+FROM "user"
+WHERE "user"."id" IN (SELECT "created_by" FROM "project")
+ON CONFLICT ("id") DO NOTHING;
+--> statement-breakpoint
+INSERT INTO "member" ("id", "organization_id", "user_id", "role")
+SELECT 'member_' || "user"."id", 'org_' || "user"."id", "user"."id", 'owner'
+FROM "user"
+WHERE "user"."id" IN (SELECT "created_by" FROM "project")
+ON CONFLICT ("id") DO NOTHING;
+--> statement-breakpoint
+UPDATE "project" SET "organization_id" = 'org_' || "project"."created_by" WHERE "organization_id" IS NULL;
+--> statement-breakpoint
+ALTER TABLE "project" ALTER COLUMN "organization_id" SET NOT NULL;
+--> statement-breakpoint
 ALTER TABLE "invitation" ADD CONSTRAINT "invitation_inviter_id_user_id_fk" FOREIGN KEY ("inviter_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invitation" ADD CONSTRAINT "invitation_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "member" ADD CONSTRAINT "member_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
