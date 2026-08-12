@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 /**
  * Proves the architecture rules actually fire.
@@ -25,9 +26,43 @@ import {
 	WEB_DIR,
 } from "./check-rules.fixtures";
 
+const DIRS = [LIB_DIR, MODULE_DIR, HELPER_DIR, WEB_DIR];
+
 async function write(path: string, source: string) {
 	await mkdir(path.slice(0, path.lastIndexOf("/")), { recursive: true });
 	await Bun.write(path, source);
+}
+
+/**
+ * Removes every fixture directory and reports which ones were there.
+ *
+ * Called at the start of the run as well as in the `finally`, because SIGKILL
+ * cannot be trapped: a CI timeout or an OOM kill during the lint leaves
+ * deliberate violations in the source tree. The `finally` alone already meant a
+ * rerun cleaned up, but only after linting whatever the previous run left — and
+ * silently, so the operator never learned the tree had been dirty.
+ *
+ * This does not rescue `bun run check`. That chain is `&&`-joined and this
+ * script runs fifth, so a leftover fails typecheck or lint long before it is
+ * reached. What it changes is the recovery instruction: run the script, rather
+ * than know which four directories to delete.
+ */
+async function cleanup() {
+	const leftovers = DIRS.filter((dir) => existsSync(dir));
+
+	await Promise.all(
+		DIRS.map((dir) => rm(dir, { force: true, recursive: true }))
+	);
+
+	return leftovers;
+}
+
+const leftovers = await cleanup();
+
+if (leftovers.length > 0) {
+	console.log(
+		`check-rules: removed fixtures left by an interrupted run — ${leftovers.join(", ")}.`
+	);
 }
 
 let failures = 0;
@@ -73,12 +108,7 @@ try {
 		}
 	}
 } finally {
-	await Promise.all([
-		rm(LIB_DIR, { force: true, recursive: true }),
-		rm(MODULE_DIR, { force: true, recursive: true }),
-		rm(HELPER_DIR, { force: true, recursive: true }),
-		rm(WEB_DIR, { force: true, recursive: true }),
-	]);
+	await cleanup();
 }
 
 if (failures > 0) {

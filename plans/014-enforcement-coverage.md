@@ -500,7 +500,7 @@ nothing else moving. 20 architecture rules verified."
 - Consumes: `WEB_DIR` from Task 2 — the cleanup list is all four roots, so this task must land after it.
 - Produces: nothing other code imports.
 
-- [ ] **Step 1: Simulate the leak and watch the script say nothing about it**
+- [x] **Step 1: Simulate the leak and watch the script say nothing about it**
 
 `SIGKILL` cannot be trapped, so a hard kill during the lint leaves the fixture tree behind. Reproduce that state deterministically:
 
@@ -520,7 +520,7 @@ git status --short
 
 Expected: no `apps/server/src/modules/rulecheck` entry.
 
-- [ ] **Step 2: Extract the cleanup and run it up front**
+- [x] **Step 2: Extract the cleanup and run it up front**
 
 In `tools/check-rules.ts`, add the `node:fs` import above the existing `node:fs/promises` one at line 2:
 
@@ -574,7 +574,7 @@ if (leftovers.length > 0) {
 let failures = 0;
 ```
 
-- [ ] **Step 3: Reuse it in the `finally`**
+- [x] **Step 3: Reuse it in the `finally`**
 
 Replace the body of the `finally` block:
 
@@ -584,7 +584,7 @@ Replace the body of the `finally` block:
 }
 ```
 
-- [ ] **Step 4: Run the script against a leaked tree and watch it announce the heal**
+- [x] **Step 4: Run the script against a leaked tree and watch it announce the heal**
 
 ```bash
 mkdir -p apps/server/src/modules/rulecheck
@@ -600,7 +600,7 @@ check-rules: removed fixtures left by an interrupted run — apps/server/src/mod
 
 followed by the twenty `ok` lines and `check-rules: 20 architecture rules verified against deliberate violations.`
 
-- [ ] **Step 5: Confirm a clean run stays quiet**
+- [x] **Step 5: Confirm a clean run stays quiet**
 
 ```bash
 bun tools/check-rules.ts
@@ -608,7 +608,7 @@ bun tools/check-rules.ts
 
 Expected: no `removed fixtures` line at all — only the twenty `ok` lines and the closing count. A message on every run would be noise, and worse, would stop meaning anything when it mattered.
 
-- [ ] **Step 6: Prove the whole gate is green**
+- [x] **Step 6: Prove the whole gate is green**
 
 ```bash
 bun run check
@@ -616,7 +616,7 @@ bun run check
 
 Expected: every turbo task successful, `check-naming` reporting 33 suites, and `check-rules: 20 architecture rules verified against deliberate violations.`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tools/check-rules.ts
