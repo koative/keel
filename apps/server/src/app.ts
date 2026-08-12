@@ -25,6 +25,7 @@ import {
 } from "@/lib/security";
 import { rejectInvalid } from "@/lib/validate";
 import { publicProjectRoutesV1 } from "@/modules/projects";
+import { internalStorageRoutes } from "@/modules/storage";
 
 const identifyUser = createAuthMiddleware(auth as BetterAuthInstance, {
 	exclude: ["/api/auth/**"],
@@ -162,6 +163,7 @@ app.doc("/doc", {
 app
 	.get("/", (c) => c.text("OK"))
 	.route("/", internalRoutes)
+	.route("/api/storage", internalStorageRoutes)
 	.route("/v1/projects", publicProjectRoutesV1);
 
 // Both terminal paths render the same envelope as every handler, so a client
