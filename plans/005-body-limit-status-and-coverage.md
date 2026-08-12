@@ -351,7 +351,7 @@ declared 413 on either GET would be unreachable."
 - Consumes: Task 1's wiring end to end — `payloadTooLarge`, the `ERROR_CODE_BY_STATUS` entry, and `security.ts` throwing it. This task is where Task 1 Step 8 is actually proven; the assertions below fail against `39fd32c`. Also `createClient(): TestClient` and `ErrorEnvelope` from `apps/server/test-http.ts:7-24`, `app` from `@/app`, and `env.BODY_LIMIT_BYTES` from `@keel/env/server`.
 - Produces: nothing importable. It is a leaf suite.
 
-^- [ ] **Step 1: Write the failing test**
+^- [x] **Step 1: Write the failing test**
 
 Create `apps/server/src/lib/security.test.ts`:
 
@@ -460,7 +460,7 @@ describe("referenceSecurityHeaders", () => {
 });
 ```
 
-^- [ ] **Step 2: Run it and watch it fail for the right reason**
+^- [x] **Step 2: Run it and watch it fail for the right reason**
 
 ```bash
 cd apps/server && bun test src/lib/security.test.ts
@@ -477,7 +477,7 @@ Received: 400
 
 Restore Task 1's line before continuing — `git checkout apps/server/src/lib/security.ts`.
 
-- [ ] **Step 3: Run the whole server suite**
+- [x] **Step 3: Run the whole server suite**
 
 ```bash
 cd apps/server && bun test
@@ -485,7 +485,7 @@ cd apps/server && bun test
 
 Expected: every existing suite still green, five more tests than the run before this task. Nothing here mounts middleware or touches shared state, so no other suite's counts move.
 
-- [ ] **Step 4: Prove the whole gate is green**
+- [x] **Step 4: Prove the whole gate is green**
 
 ```bash
 bun run check
@@ -493,7 +493,7 @@ bun run check
 
 Expected: every task successful, `check-naming` reporting **34** suites — one more than Task 1's run, because `security.test.ts` is a new suite named to convention beside the module it covers. 16 architecture rules verified, migrations match.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/server/src/lib/security.test.ts
