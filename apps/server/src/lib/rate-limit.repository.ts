@@ -1,6 +1,7 @@
 import { db } from "@keel/db";
 import { apiRateLimit } from "@keel/db/schema/rate-limit";
-import { sql } from "drizzle-orm";
+import { lt, sql } from "drizzle-orm";
+import { deleteInBatches } from "@/lib/sweep";
 
 /**
  * The only file allowed to touch Drizzle for rate limiting.
@@ -86,10 +87,10 @@ export async function consume(
 }
 
 /** Drops buckets nobody has touched since `olderThan`. Called from `tasks.ts`. */
-export async function sweepIdleBuckets(olderThan: Date): Promise<number> {
-	const removed = await db
-		.delete(apiRateLimit)
-		.where(sql`${apiRateLimit.updatedAt} < ${olderThan}`)
-		.returning({ key: apiRateLimit.key });
-	return removed.length;
+export function sweepIdleBuckets(olderThan: Date): Promise<number> {
+	return deleteInBatches({
+		primaryKey: apiRateLimit.key,
+		table: apiRateLimit,
+		where: lt(apiRateLimit.updatedAt, olderThan),
+	});
 }

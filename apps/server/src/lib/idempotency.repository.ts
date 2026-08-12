@@ -2,6 +2,7 @@ import { db } from "@keel/db";
 import { withUniqueConflict } from "@keel/db/errors";
 import { idempotencyKey } from "@keel/db/schema/idempotency";
 import { and, eq, lt } from "drizzle-orm";
+import { deleteInBatches } from "@/lib/sweep";
 
 /**
  * The only file behind the idempotency middleware allowed to touch Drizzle,
@@ -121,12 +122,10 @@ export async function storeResponse(
  * times and a serverless one never does. Call this from whatever the deployment
  * already uses for cron.
  */
-export async function sweepExpiredKeys(
-	now: Date = new Date()
-): Promise<number> {
-	const removed = await db
-		.delete(idempotencyKey)
-		.where(lt(idempotencyKey.expiresAt, now))
-		.returning({ id: idempotencyKey.id });
-	return removed.length;
+export function sweepExpiredKeys(now: Date = new Date()): Promise<number> {
+	return deleteInBatches({
+		primaryKey: idempotencyKey.id,
+		table: idempotencyKey,
+		where: lt(idempotencyKey.expiresAt, now),
+	});
 }

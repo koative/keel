@@ -11,7 +11,7 @@
 
 **Tech Stack:** Bun, Drizzle ORM 0.45.2 (`node-postgres` driver), drizzle-kit 0.31.10, pg 8.22 / `@types/pg` 8.21, PostgreSQL 18, better-auth 1.6.25, bun:test.
 
-> **Implementation note (executed on main at `9fdb492`):** this plan's migration was written when `0004_ai_usage.sql` was head. Since then plans 013 and 025 landed `0006_idempotency_organization.sql` and `0007_webhook_event.sql`, so the generated migration is **`0008_sweep_indexes.sql`** — same two `CREATE INDEX` statements, next ordinal. The plan text below still says `0005`; read every `0005_sweep_indexes` mention as `0008_sweep_indexes`. All other drift vs. the audited commit: plan 017 renamed the partial dedupe index to `job_dedupeKey_unsettled_idx` (the plan's evidence quotes `job_dedupeKey_pending_idx`), and plan 011/016 moved `sweepSettledJobs` to `apps/server/src/lib/jobs.repository.ts:248-256` with `markUnsettled`/`reclaimStrandedJobs` added above and below it; plan 025 added the `reclaimStrandedJobs` call and its `STRANDED_JOB_TIMEOUT_MS` block to `tasks.ts`. One more drift: the plan's Task-2 snippet keeps `async` on `sweepSettledJobs`, but Ultracite's `useAwait` rule rejects an `async` function that only returns another promise, so the landed version is `export function sweepSettledJobs(olderThan: Date): Promise<number>` — same signature, no modifier.
+> **Implementation note (executed on main at `9fdb492`):** this plan's migration was written when `0004_ai_usage.sql` was head. Since then plans 013 and 025 landed `0006_idempotency_organization.sql` and `0007_webhook_event.sql`, so the generated migration is **`0008_sweep_indexes.sql`** — same two `CREATE INDEX` statements, next ordinal. The plan text below still says `0005`; read every `0005_sweep_indexes` mention as `0008_sweep_indexes`. All other drift vs. the audited commit: plan 017 renamed the partial dedupe index to `job_dedupeKey_unsettled_idx` (the plan's evidence quotes `job_dedupeKey_pending_idx`), and plan 011/016 moved `sweepSettledJobs` to `apps/server/src/lib/jobs.repository.ts:248-256` with `markUnsettled`/`reclaimStrandedJobs` added above and below it; plan 025 added the `reclaimStrandedJobs` call and its `STRANDED_JOB_TIMEOUT_MS` block to `tasks.ts`. One more drift: the plan's Task-2 snippet keeps `async` on `sweepSettledJobs`, but Ultracite's `useAwait` rule rejects an `async` function that only returns another promise, so the landed version is `export function sweepSettledJobs(olderThan: Date): Promise<number>` — same signature, no modifier. One design deviation, forced by a proven planner hazard: the Task-2/3 helper snippet deletes with `where id in (select id … limit n for update skip locked)` in one statement, but that shape is **not a bound** — Postgres may re-execute the FOR UPDATE subquery once per candidate row (`loops=3005` observed under a large table), and `skip locked` then skips the statement's own earlier locks, so the LIMIT is per-rescan and a batch can delete the whole eligible set (empirically `rowCount=4` and `3` with `batchSize 2` in concurrent suite runs). The landed helper instead runs each batch as two statements: a standalone `select … limit n for update skip locked` (its limit is enforced — no join to re-execute it), then `delete … where id in (<the n ids>)`. Same bound, same `rowCount` counting, same ceiling semantics; one extra round trip per batch. The plan's `noAwaitInLoops` suppression moved from the delete to the select (the select's await is the one the rule flags).
 
 ---
 
@@ -672,7 +672,7 @@ deleting the table."
 - Consumes: `deleteInBatches` from Task 2.
 - Produces: no signature change. `sweepExpiredKeys(now?: Date): Promise<number>` and `sweepIdleBuckets(olderThan: Date): Promise<number>` keep returning a count; the inline delete in `tasks.ts` becomes a count instead of an array.
 
-- [ ] **Step 1: Run the suite that already guards one of these**
+- [x] **Step 1: Run the suite that already guards one of these**
 
 ```bash
 cd apps/server && bun test src/lib/idempotency.test.ts
@@ -680,7 +680,7 @@ cd apps/server && bun test src/lib/idempotency.test.ts
 
 Expected: green. `src/lib/idempotency.test.ts:177-204` ("sweeps only the rows past their expiry") asserts both the returned count and that a live row survives — that is the contract this task must not break, and it exists before the change. Note the returned count is what it checks, so it fails if `rowCount` and `.returning().length` ever disagree.
 
-- [ ] **Step 2: Convert `sweepExpiredKeys`**
+- [x] **Step 2: Convert `sweepExpiredKeys`**
 
 In `apps/server/src/lib/idempotency.repository.ts`, add the import after the `drizzle-orm` line at line 4:
 
@@ -704,7 +704,7 @@ export async function sweepExpiredKeys(
 
 `and` and `eq` remain in use by `findByActorAndKey` and `deleteById`; `lt` is still used here.
 
-- [ ] **Step 3: Convert `sweepIdleBuckets`**
+- [x] **Step 3: Convert `sweepIdleBuckets`**
 
 In `apps/server/src/lib/rate-limit.repository.ts`, change the `drizzle-orm` import at line 3 and add the helper:
 
@@ -728,7 +728,7 @@ export async function sweepIdleBuckets(olderThan: Date): Promise<number> {
 
 `apiRateLimit` has no `id` column — `key` is its primary key, which is exactly what `primaryKey` asks for.
 
-- [ ] **Step 4: Convert the inline sweep in `tasks.ts` and correct the comment above it**
+- [x] **Step 4: Convert the inline sweep in `tasks.ts` and correct the comment above it**
 
 Two edits in `apps/server/src/tasks.ts`. First, line 1 and the import block: `db` is about to become unused, so it must go or Biome's `noUnusedImports` fails the lint. Lines 1-6 become:
 
@@ -764,7 +764,7 @@ const staleCounters = await deleteInBatches({
 });
 ```
 
-- [ ] **Step 5: Read the count instead of an array length**
+- [x] **Step 5: Read the count instead of an array length**
 
 In the summary at `apps/server/src/tasks.ts:72-74`, `staleCounters` is now a number. One token changes:
 
@@ -774,7 +774,7 @@ process.stdout.write(
 );
 ```
 
-- [ ] **Step 6: Run the sweeps for real against the test database**
+- [x] **Step 6: Run the sweeps for real against the test database**
 
 `tasks.ts` is a script with no suite, so exercise it directly. From the repository root:
 
@@ -786,7 +786,7 @@ Expected: one line, four counts, and a clean exit — for example `[tasks] swept
 
 The inline `DATABASE_URL` is what keeps this off the development database. Bun loads `apps/server/.env` automatically, but a variable already present in the shell environment wins over a `.env` entry — verified with a probe `.env` before this plan was written — so the assignment on the command line is the one the script sees. Confirm it anyway before running: the URL printed by `bun tools/test-database-url.ts` must end in `/keel_test`.
 
-- [ ] **Step 7: Prove the suites that cover these paths still pass**
+- [x] **Step 7: Prove the suites that cover these paths still pass**
 
 ```bash
 cd apps/server && bun test src/lib/idempotency.test.ts src/lib/rate-limit.test.ts src/lib/sweep.test.ts
@@ -794,13 +794,13 @@ cd apps/server && bun test src/lib/idempotency.test.ts src/lib/rate-limit.test.t
 
 Expected: green. The idempotency suite is the direct regression guard from Step 1 — it asserts the same count contract, now produced by `rowCount` across batches.
 
-- [ ] **Step 8: Prove the whole gate is green**
+- [x] **Step 8: Prove the whole gate is green**
 
 ```bash
 bun run check
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apps/server/src/lib/idempotency.repository.ts apps/server/src/lib/rate-limit.repository.ts apps/server/src/tasks.ts

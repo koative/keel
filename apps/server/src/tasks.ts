@@ -1,10 +1,11 @@
-import { closePool, db } from "@keel/db";
+import { closePool } from "@keel/db";
 import { rateLimit } from "@keel/db/schema/auth";
 import { env } from "@keel/env/server";
 import { lt } from "drizzle-orm";
 import { sweepExpiredKeys } from "@/lib/idempotency.repository";
 import { reclaimStrandedJobs, sweepSettledJobs } from "@/lib/jobs.repository";
 import { sweepIdleBuckets } from "@/lib/rate-limit";
+import { deleteInBatches } from "@/lib/sweep";
 
 /**
  * Periodic maintenance: `bun dist/tasks.mjs`.
@@ -86,25 +87,62 @@ const RECLAIM_MARGIN_MS = 5 * 60 * 1000;
 const STRANDED_JOB_TIMEOUT_MS =
 	env.WORKER_BATCH_SIZE * SLOWEST_HANDLER_MS + RECLAIM_MARGIN_MS;
 
-const expiredKeys = await sweepExpiredKeys();
+let failedSweeps = 0;
 
 /**
- * Better Auth owns these rows and never deletes them: it keys on IP and path, so
- * every address that ever signed in leaves a counter behind forever. Dropping a
- * stale one is safe — a missing row simply starts a fresh window, which is what an
- * expired counter already means.
+ * Runs one retention sweep so its failure cannot take the rest of the run with
+ * it. The settled-job sweep is last, and it is the one whose payloads are live
+ * one-time links: before this wrapper existed, a sweep cancelled at the
+ * statement budget rejected and the script died on the unhandled rejection —
+ * `closePool()` never ran, the sweeps queued behind it never ran, and the next
+ * cron tick met a larger table and failed sooner.
+ *
+ * A failure is reported on stderr and counted as zero rows; the run continues,
+ * and `failedSweeps` turns into a non-zero exit so the failure is visible to
+ * whatever runs cron rather than looking like a clean run.
  */
-const staleCounters = await db
-	.delete(rateLimit)
-	.where(lt(rateLimit.lastRequest, Date.now() - RATE_LIMIT_RETENTION_MS))
-	.returning({ id: rateLimit.id });
+async function guardedSweep(
+	name: string,
+	run: () => Promise<number>
+): Promise<number> {
+	try {
+		return await run();
+	} catch (error) {
+		failedSweeps += 1;
+		const message = error instanceof Error ? error.message : String(error);
+		process.stderr.write(`[tasks] ${name} sweep failed: ${message}\n`);
+		return 0;
+	}
+}
 
-const idleBuckets = await sweepIdleBuckets(
-	new Date(Date.now() - IDLE_BUCKET_RETENTION_MS)
+const expiredKeys = await guardedSweep("idempotency", sweepExpiredKeys);
+
+/**
+ * A backstop, not the only pruner. Better Auth does delete these rows: its
+ * database rate-limit storage fires `deleteExpiredRows` in the background of any
+ * request whose window has just rolled over, with a cutoff of its largest
+ * configured window — tens of seconds, far tighter than the day kept here.
+ *
+ * It is still worth sweeping, because that prune only happens as a side effect
+ * of live auth traffic and its failures are only logged. A deployment that goes
+ * quiet, or one whose background delete lost a race with a restart, keeps
+ * whatever was already behind. Dropping a stale counter is safe either way: a
+ * missing row starts a fresh window, which is what an expired counter means.
+ */
+const staleCounters = await guardedSweep("auth rate-limit", () =>
+	deleteInBatches({
+		primaryKey: rateLimit.id,
+		table: rateLimit,
+		where: lt(rateLimit.lastRequest, Date.now() - RATE_LIMIT_RETENTION_MS),
+	})
 );
 
-const settledJobs = await sweepSettledJobs(
-	new Date(Date.now() - SETTLED_JOB_RETENTION_MS)
+const idleBuckets = await guardedSweep("idle token bucket", () =>
+	sweepIdleBuckets(new Date(Date.now() - IDLE_BUCKET_RETENTION_MS))
+);
+
+const settledJobs = await guardedSweep("settled job", () =>
+	sweepSettledJobs(new Date(Date.now() - SETTLED_JOB_RETENTION_MS))
 );
 
 /**
@@ -117,8 +155,14 @@ const settledJobs = await sweepSettledJobs(
 const strandedJobs = await reclaimStrandedJobs(STRANDED_JOB_TIMEOUT_MS);
 
 process.stdout.write(
-	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s), ${settledJobs} settled job(s); requeued ${strandedJobs.requeued} stranded job(s), exhausted ${strandedJobs.exhausted}\n`
+	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s), ${settledJobs} settled job(s); requeued ${strandedJobs.requeued} stranded job(s), exhausted ${strandedJobs.exhausted}\n`
 );
+
+// A failed sweep already reported itself on stderr; a non-zero exit makes it
+// visible to whatever runs cron instead of reading like a clean run.
+if (failedSweeps > 0) {
+	process.exitCode = 1;
+}
 
 // The pool holds an idle client for `idleTimeoutMillis`, and its timer keeps the
 // event loop alive. Without this the sweep finishes in milliseconds and the

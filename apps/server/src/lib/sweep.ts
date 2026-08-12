@@ -48,10 +48,20 @@ export interface BatchedDelete {
  * Deletes every row matching `where`, `batchSize` rows at a time, and returns
  * how many went.
  *
- * `delete … where id in (select id … limit n for update skip locked)` rather
- * than `delete … limit n`, which Postgres does not have. `skip locked` matches
- * `claim` in jobs.repository: two overlapping cron runs then take disjoint
- * batches instead of one queueing behind the other's locks.
+ * Each batch is two statements: select the ids, then delete them. The original
+ * single-statement shape — `delete … where id in (select id … limit n for
+ * update skip locked)` — is not a bound: the planner may re-execute that
+ * subquery once per candidate row, and `skip locked` then skips the statement's
+ * own earlier locks, so the limit is per-rescan rather than per-statement and a
+ * batch can delete the whole eligible set. A standalone `select … limit n for
+ * update skip locked` has no join to re-execute it, so its limit holds, and the
+ * delete is then bounded by the explicit id list.
+ *
+ * `skip locked` still matches `claim` in jobs.repository: two overlapping cron
+ * runs select disjoint batches instead of one queueing behind the other's
+ * locks. If a concurrent run deletes a selected row between the two statements,
+ * this run's delete removes one fewer — the count reflects what this run
+ * actually deleted, and the rows are not lost.
  *
  * The count comes from the driver's `rowCount`, which is the number Postgres
  * already puts in the command tag. The `.returning({ id })` this replaced made
@@ -74,25 +84,33 @@ export async function deleteInBatches({
 	let removed = 0;
 
 	for (let batch = 0; batch < maxBatches; batch += 1) {
-		const doomed = db
+		// biome-ignore lint/performance/noAwaitInLoops: the serialisation is the point — each batch has to commit before the next one picks its rows, and parallel batches would hold connections the request path draws from.
+		const doomed = await db
 			.select({ id: primaryKey })
 			.from(table)
 			.where(where)
 			.limit(batchSize)
 			.for("update", { skipLocked: true });
 
-		// biome-ignore lint/performance/noAwaitInLoops: the serialisation is the point — each statement has to commit before the next one picks its rows, and parallel batches would hold connections the request path draws from.
-		const result = await db.delete(table).where(inArray(primaryKey, doomed));
+		// An empty select is the eligible set exhausted, so this saves the round
+		// trip a delete that returns zero would cost.
+		if (doomed.length === 0) {
+			return removed;
+		}
+
+		const ids = doomed.map((row) => row.id);
+
+		const result = await db.delete(table).where(inArray(primaryKey, ids));
 
 		// `number | null` in @types/pg because some commands report no count.
 		// DELETE always reports one; read it defensively rather than assert.
 		const deleted = result.rowCount ?? 0;
 		removed += deleted;
 
-		// A short batch means the eligible set is exhausted, so this saves the
-		// round trip that would return zero. A batch shortened by `skip locked`
-		// instead means a concurrent run holds those rows and will delete them.
-		if (deleted < batchSize) {
+		// A select shorter than the batch means the eligible set is exhausted.
+		// The delete ran anyway — a short batch still has rows in it — and the
+		// next batch's select would return zero, so stop here.
+		if (doomed.length < batchSize) {
 			return removed;
 		}
 	}
