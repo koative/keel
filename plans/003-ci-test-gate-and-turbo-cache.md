@@ -43,12 +43,12 @@
 
 **Files:** `.github/workflows/ci.yml`
 
-- [ ] **Step 1:** Replace the `- run: bun run check` step with one that captures output:
+- [x] **Step 1:** Replace the `- run: bun run check` step with one that captures output:
   ```yaml
   - name: typecheck, tests, lint, catalog drift, and the architecture rules
     run: bun run check 2>&1 | tee /tmp/check.log
   ```
-- [ ] **Step 2:** Rewrite the `Fail if any test was skipped` step to grep the captured log instead of re-running tests, and to cover the mail package's prefixed output:
+- [x] **Step 2:** Rewrite the `Fail if any test was skipped` step to grep the captured log instead of re-running tests, and to cover the mail package's prefixed output:
   ```yaml
   - name: Fail if any test was skipped
     run: |
@@ -60,9 +60,9 @@
       TEST_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
   ```
   The pattern must match both turbo-prefixed lines (`server:test:  3 skip`) and the mail package's `(skip)` marker. Verify by reading `packages/mail/src/queue.test.ts:76` and `apps/server/test-db.ts` `skipNotice()` to know the exact shapes the suites print.
-- [ ] **Step 3:** Delete the second `cd apps/server && bun test` block entirely — no test runs twice anymore.
-- [ ] **Step 4:** Sanity-check the YAML indentation against the rest of the file; steps and `run:` blocks must align with the existing `- name:` / `run:` convention.
-- [ ] **Step 5:** Commit: `ci: run the suite once and grep its own skip count`.
+- [x] **Step 3:** Delete the second `cd apps/server && bun test` block entirely — no test runs twice anymore.
+- [x] **Step 4:** Sanity-check the YAML indentation against the rest of the file; steps and `run:` blocks must align with the existing `- name:` / `run:` convention.
+- [x] **Step 5:** Commit: `ci: run the suite once and grep its own skip count`.
 
 ## Done when
 
