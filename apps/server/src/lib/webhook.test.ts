@@ -1,37 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import { createHmac } from "node:crypto";
 import { verifySignature } from "./webhook";
-
-const SECRET = "a-shared-webhook-secret";
-
-/**
- * Built by hand rather than via `.buffer`, so the value under test is an
- * `ArrayBuffer` of exactly the payload's bytes with no view offset in play.
- */
-function bytes(payload: string): ArrayBuffer {
-	const encoded = new TextEncoder().encode(payload);
-	const buffer = new ArrayBuffer(encoded.byteLength);
-	new Uint8Array(buffer).set(encoded);
-	return buffer;
-}
-
-/** What a provider would send: the digest of the bytes it put on the wire. */
-function sign(payload: string, secret = SECRET): string {
-	return createHmac("sha256", secret).update(payload, "utf8").digest("hex");
-}
-
-/** The bytes as delivered — note the keys are not in alphabetical order. */
-const DELIVERED = '{"type":"thing.created","id":"evt_1","amount":1.0}';
+import {
+	bytes,
+	DELIVERED,
+	delivery,
+	SECRET,
+	signedPrefix,
+} from "./webhook.fixtures";
 
 describe("verifySignature", () => {
 	it("verifies a digest computed over the exact received bytes", () => {
-		expect(
-			verifySignature({
-				header: sign(DELIVERED),
-				rawBody: bytes(DELIVERED),
-				secret: SECRET,
-			})
-		).toBe(true);
+		expect(verifySignature(delivery())).toBe(true);
 	});
 
 	/**
@@ -45,13 +25,9 @@ describe("verifySignature", () => {
 		const reordered = '{"amount":1.0,"id":"evt_1","type":"thing.created"}';
 
 		expect(JSON.parse(reordered)).toEqual(JSON.parse(DELIVERED));
-		expect(
-			verifySignature({
-				header: sign(DELIVERED),
-				rawBody: bytes(reordered),
-				secret: SECRET,
-			})
-		).toBe(false);
+		expect(verifySignature({ ...delivery(), rawBody: bytes(reordered) })).toBe(
+			false
+		);
 	});
 
 	// The same hazard from the other direction: a parse/serialise round trip
@@ -62,65 +38,80 @@ describe("verifySignature", () => {
 
 		expect(roundTripped).not.toBe(DELIVERED);
 		expect(
-			verifySignature({
-				header: sign(DELIVERED),
-				rawBody: bytes(roundTripped),
-				secret: SECRET,
-			})
+			verifySignature({ ...delivery(), rawBody: bytes(roundTripped) })
 		).toBe(false);
 	});
 
 	it("accepts a digest carrying the algorithm prefix", () => {
-		expect(
-			verifySignature({
-				header: `sha256=${sign(DELIVERED)}`,
-				rawBody: bytes(DELIVERED),
-				secret: SECRET,
-			})
-		).toBe(true);
+		const sent = delivery();
+
+		expect(verifySignature({ ...sent, header: `sha256=${sent.header}` })).toBe(
+			true
+		);
 	});
 
 	it("accepts an upper-cased digest", () => {
+		const sent = delivery();
+
 		expect(
-			verifySignature({
-				header: sign(DELIVERED).toUpperCase(),
-				rawBody: bytes(DELIVERED),
-				secret: SECRET,
-			})
+			verifySignature({ ...sent, header: sent.header.toUpperCase() })
 		).toBe(true);
 	});
 
 	it("rejects a tampered body", () => {
 		expect(
 			verifySignature({
-				header: sign(DELIVERED),
+				...delivery(),
 				rawBody: bytes(DELIVERED.replace('"amount":1.0', '"amount":9001')),
-				secret: SECRET,
 			})
 		).toBe(false);
 	});
 
 	it("rejects a digest signed with a different secret", () => {
+		expect(verifySignature(delivery({ secret: "someone-elses-secret" }))).toBe(
+			false
+		);
+	});
+
+	/**
+	 * The prefix is the only place a provider's out-of-band material — a
+	 * timestamp, a delivery id — can be brought under the signature. If it were
+	 * left out of the digest, presenting different material with the same digest
+	 * would cost nothing, and anything the receiver decided from that material
+	 * would be attacker-chosen.
+	 */
+	it("covers the prefix, so moving it invalidates the digest", () => {
+		const sent = delivery();
+
 		expect(
 			verifySignature({
-				header: sign(DELIVERED, "someone-elses-secret"),
-				rawBody: bytes(DELIVERED),
-				secret: SECRET,
+				...sent,
+				signedPrefix: signedPrefix(new Date("2020-01-01T00:00:00.000Z")),
 			})
 		).toBe(false);
 	});
 
-	it("rejects a correct digest of the wrong length", () => {
-		const digest = sign(DELIVERED);
+	// A provider that signs the body alone — GitHub is the common one — passes an
+	// empty prefix, and hashing nothing in front of the body is a no-op, so that
+	// provider's digest is unaffected by the prefix existing at all. The second
+	// assertion is the same delivery with a non-empty prefix asserted against it,
+	// which must fail: an empty prefix is a claim about the bytes, not a bypass.
+	it("treats an empty prefix as the body alone", () => {
+		const bodyOnly = createHmac("sha256", SECRET)
+			.update(DELIVERED, "utf8")
+			.digest("hex");
 
-		for (const malformed of [digest.slice(0, 63), `${digest}00`]) {
-			expect(
-				verifySignature({
-					header: malformed,
-					rawBody: bytes(DELIVERED),
-					secret: SECRET,
-				})
-			).toBe(false);
+		expect(
+			verifySignature({ ...delivery(), header: bodyOnly, signedPrefix: "" })
+		).toBe(true);
+		expect(verifySignature({ ...delivery(), header: bodyOnly })).toBe(false);
+	});
+
+	it("rejects a correct digest of the wrong length", () => {
+		const sent = delivery();
+
+		for (const malformed of [sent.header.slice(0, 63), `${sent.header}00`]) {
+			expect(verifySignature({ ...sent, header: malformed })).toBe(false);
 		}
 	});
 
@@ -137,11 +128,12 @@ describe("verifySignature", () => {
 		["whitespace", "   "],
 		["the prefix alone", "sha256="],
 		["not hex", "sha256=not-a-digest"],
-		["a different algorithm", `sha512=${sign(DELIVERED)}`],
-		["base64 rather than hex", Buffer.from(sign(DELIVERED)).toString("base64")],
+		["a different algorithm", `sha512=${delivery().header}`],
+		[
+			"base64 rather than hex",
+			Buffer.from(delivery().header).toString("base64"),
+		],
 	])("returns false for a %s header", (_name, header) => {
-		expect(
-			verifySignature({ header, rawBody: bytes(DELIVERED), secret: SECRET })
-		).toBe(false);
+		expect(verifySignature({ ...delivery(), header })).toBe(false);
 	});
 });

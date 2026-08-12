@@ -43,6 +43,23 @@ export interface SignatureInput {
 	header: string | null | undefined;
 	rawBody: ArrayBuffer;
 	secret: string;
+	/**
+	 * Bytes the provider hashes in **front** of the body, verbatim as it spells
+	 * them on the wire — Stripe's `${unixSeconds}.`, Slack's `v0:${unixSeconds}:`
+	 * — and `""` for a provider that signs the body alone.
+	 *
+	 * This exists because the signed payload is not always the payload. A
+	 * provider that transports material beside the body (a timestamp, a delivery
+	 * id) brings it under the signature by hashing it in front, and a receiver
+	 * that decides anything from that material must verify it the same way, or
+	 * the material is attacker-chosen while the digest still checks out.
+	 *
+	 * A `string` and not a parsed structure, and required rather than defaulted,
+	 * for the same reason the header name is not this module's business: the
+	 * route knows its provider's grammar and this module knows bytes. A default
+	 * of `""` would let a Stripe receiver silently verify the wrong payload.
+	 */
+	signedPrefix: string;
 }
 
 /**
@@ -76,6 +93,7 @@ export function verifySignature({
 	header,
 	rawBody,
 	secret,
+	signedPrefix,
 }: SignatureInput): boolean {
 	if (!header) {
 		return false;
@@ -93,6 +111,7 @@ export function verifySignature({
 	// `Buffer.from(ArrayBuffer)` is a view over the same memory, so the body is
 	// hashed without a second copy of it.
 	const expected = createHmac("sha256", secret)
+		.update(signedPrefix, "utf8")
 		.update(Buffer.from(rawBody))
 		.digest("hex");
 
