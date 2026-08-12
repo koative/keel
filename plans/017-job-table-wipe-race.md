@@ -56,9 +56,9 @@
 
 **Files:** `apps/server/src/lib/jobs.ownership.test.ts`
 
-- [ ] **Step 1:** Apply the same id-scoped pattern (Steps 1-4 of Task 1) to this suite.
-- [ ] **Step 2:** Run both server suites together with explicit paths: `cd apps/server && bun test src/lib/jobs.test.ts src/lib/jobs.ownership.test.ts` — green.
-- [ ] **Step 3:** Commit: `test(jobs): ownership suite stops wiping the table too`.
+- [x] **Step 1:** Apply the same id-scoped pattern (Steps 1-4 of Task 1) to this suite.
+- [x] **Step 2:** Run both server suites together with explicit paths: `cd apps/server && bun test src/lib/jobs.test.ts src/lib/jobs.ownership.test.ts` — green.
+- [x] **Step 3:** Commit: `test(jobs): ownership suite stops wiping the table too`.
 
 ## Done when
 

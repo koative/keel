@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { claim, complete, enqueue, fail } from "@/lib/jobs.repository";
 import { skipNotice, testDbReady } from "../../test-db";
 
@@ -13,11 +13,26 @@ if (!ready) {
 const WORKER = "test-worker";
 const BATCH = 10;
 
+/**
+ * Ids this suite created, so cleanup only ever removes its own rows. The
+ * server and mail suites run concurrently against one database, so a full
+ * `db.delete(job)` in `beforeEach` would wipe another suite's rows
+ * mid-assertion; deleting by id leaves the table as it was found.
+ */
+const staged: string[] = [];
+
+afterEach(async () => {
+	if (staged.length > 0) {
+		await db.delete(job).where(inArray(job.id, staged.splice(0)));
+	}
+});
+
 async function enqueueId(kind = "test.echo"): Promise<string> {
 	const { id } = await enqueue({ kind, payload: {} });
 	if (id === null) {
 		throw new Error(`expected ${kind} to be enqueued, but it collapsed`);
 	}
+	staged.push(id);
 	return id;
 }
 
@@ -34,22 +49,25 @@ async function rowFor(id: string) {
  * without turning stalled rows into double execution.
  */
 describe.skipIf(!ready)("job ownership", () => {
-	// `claim` is global by design — a worker takes whatever is due — so the table
-	// has to start empty or one test claims another's rows.
-	beforeEach(async () => {
-		await db.delete(job);
-	});
+	// `claim` is global by design — a worker takes whatever is due, and rows a
+	// concurrent suite created are claimable here. Cleanup is scoped to the ids
+	// this suite created; wiping the table in `beforeEach` would delete another
+	// suite's rows mid-assertion when the server and mail suites run against one
+	// database.
 
 	// The whole point of claiming and locking in one statement: a second worker
 	// polling immediately afterwards must see nothing rather than a duplicate.
 	it("never hands the same job to a second worker", async () => {
-		await enqueueId();
+		const id = await enqueueId();
 
 		const first = await claim("worker-a", BATCH);
 		const second = await claim("worker-b", BATCH);
 
-		expect(first).toHaveLength(1);
-		expect(second).toHaveLength(0);
+		// By id, not batch length: `claim` is global, so a concurrent suite's due
+		// rows can share the batch. The property is that the second worker never
+		// sees this job.
+		expect(first.map((entry) => entry.id)).toContain(id);
+		expect(second.map((entry) => entry.id)).not.toContain(id);
 	});
 
 	/**
