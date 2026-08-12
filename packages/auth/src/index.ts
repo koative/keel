@@ -49,24 +49,32 @@ export function createAuth() {
 			},
 			/**
 			 * Better Auth resolves the client IP from headers only — it has no socket
-			 * access through a `Request` — so with nothing configured every caller
-			 * shares one rate-limit bucket per path. That inverts the limiter: a
-			 * single aggressive client locks every user out of `/sign-in`, turning a
-			 * defence into a denial-of-service lever.
+			 * access through a `Request` — and it does not wait to be told which
+			 * header: `getIp` falls back to `DEFAULT_IP_HEADERS`, which is
+			 * `["x-forwarded-for"]`, whenever `ipAddressHeaders` is absent. So an
+			 * unset header is not the coarse-but-unforgeable bucket it reads like.
+			 * On a directly reachable deployment a caller that sends a single-value
+			 * `X-Forwarded-For` is keyed on it, and a caller that sends a different
+			 * one per request has no credential limit at all. Only a caller sending
+			 * no forwarding header, or one with two or more entries, lands in the
+			 * shared `no-trusted-ip` bucket. Outside production the question is moot:
+			 * `getIp` ends at `isTest() || isDevelopment()` and returns 127.0.0.1.
 			 *
 			 * Naming the header is not enough, and this was measured rather than
 			 * assumed. `getIPFromHeader` returns null unless the header holds exactly
 			 * ONE address, so behind anything that appends — Traefik, nginx's
 			 * `proxy_add_x_forwarded_for`, a CDN, any second hop — the value has two
-			 * entries and resolution silently falls back to the shared bucket. Only
+			 * entries and resolution falls back to the shared bucket. Only
 			 * `trustedProxies` changes that: with it, Better Auth walks the list from
 			 * the right, skips every address inside a trusted range, and takes the
 			 * first one that is not. That is the only order that resists spoofing,
 			 * because a client controls what it prepends and nothing more.
 			 *
-			 * Both stay unset by default: trusting a forwarding header on an app that
-			 * is directly reachable lets any caller invent its own identity and skip
-			 * the limit entirely. Only a deployment knows what sits in front of it.
+			 * Both are optional here because only a deployment knows what sits in
+			 * front of it — but a production deployment has to answer.
+			 * `resolveClientIpPosture` in `apps/server/src/lib/client-ip.ts` refuses
+			 * to start the API on `NODE_ENV=production` without a header, and refuses
+			 * a header without a proxy list in any environment.
 			 */
 			...(env.TRUSTED_IP_HEADER
 				? {
@@ -267,10 +275,10 @@ export function createAuth() {
 				"/sign-up/email": CREDENTIAL_RULE,
 			},
 			/**
-			 * Off under test: the bucket key falls back to a single shared per-path
-			 * value when there is no client IP, and `app.request()` has no socket, so
-			 * every test user in every run would draw from one budget and a second
-			 * `bun test` inside the window would start returning 429.
+			 * Off under test: `getIp` returns 127.0.0.1 for every request when
+			 * NODE_ENV is `test`, so every test user in every run would draw from one
+			 * `127.0.0.1|<path>` budget and a second `bun test` inside the window
+			 * would start returning 429.
 			 */
 			enabled: env.NODE_ENV !== "test",
 			max: 100,

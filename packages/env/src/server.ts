@@ -189,22 +189,26 @@ export const env = createEnv({
 		 * The header a trusted proxy uses to report the real client IP, e.g.
 		 * `x-forwarded-for` or `cf-connecting-ip`.
 		 *
-		 * Unset by default and deliberately so. Naming a header on an app that is
-		 * directly reachable lets any caller forge it and slip the rate limiter;
-		 * leaving it unset means every caller shares one bucket per path, which is
-		 * coarse but not forgeable. Only the deployment knows which is true, so the
-		 * deployment decides.
+		 * Optional because a laptop needs no answer, not because skipping it is
+		 * safe. Better Auth reads `x-forwarded-for` by default whether or not this
+		 * is set, so an unset header on a directly reachable app does not mean one
+		 * coarse shared bucket — it means each caller can send an address and pick
+		 * its own. `resolveClientIpPosture` in `apps/server/src/lib/client-ip.ts` is
+		 * the guard: it refuses to start the API on `NODE_ENV=production` without
+		 * this, and refuses this without `TRUSTED_PROXIES` alongside it.
 		 */
 		TRUSTED_IP_HEADER: z.string().min(1).optional(),
 		/**
 		 * The addresses of the proxies in front of this app, as IPs or CIDR ranges,
 		 * comma separated — e.g. `10.0.0.0/8,172.16.0.0/12`.
 		 *
-		 * Needed whenever the forwarding header can hold more than one address,
-		 * which is the normal case: Traefik, nginx's `proxy_add_x_forwarded_for`
-		 * and every CDN append rather than replace. Without this, Better Auth
-		 * refuses to guess which entry is the client and falls back to the shared
-		 * bucket, so `TRUSTED_IP_HEADER` alone silently does nothing there.
+		 * Required whenever `TRUSTED_IP_HEADER` is set, and the guard enforces it.
+		 * Without a proxy list Better Auth accepts a forwarding header holding
+		 * exactly one address at face value, which is a caller choosing its own
+		 * bucket; with two or more entries — Traefik, nginx's
+		 * `proxy_add_x_forwarded_for` and every CDN append rather than replace — it
+		 * refuses to guess which entry is the client and falls back to one shared
+		 * per-path bucket. The header alone is therefore either forgeable or inert.
 		 *
 		 * List every hop. Better Auth scans from the right and returns the first
 		 * address outside these ranges, so a hop left out of the list becomes the

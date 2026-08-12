@@ -469,7 +469,7 @@ falls back to 127.0.0.1."
 - Consumes: nothing. No executable line changes in this task.
 - Produces: nothing. Comment text only.
 
-- [ ] **Step 1: Replace the IP-resolution rationale in `packages/auth`**
+- [x] **Step 1: Replace the IP-resolution rationale in `packages/auth`**
 
 `packages/auth/src/index.ts:50-70` is the block comment directly above the conditional spread at line 71. Replace those 21 lines — the comment only, leaving `...(env.TRUSTED_IP_HEADER` at line 71 untouched — with:
 
@@ -505,7 +505,7 @@ falls back to 127.0.0.1."
 			 */
 ```
 
-- [ ] **Step 2: Correct the limiter's test-mode note in the same file**
+- [x] **Step 2: Correct the limiter's test-mode note in the same file**
 
 `packages/auth/src/index.ts:269-274` sits inside the `rateLimit` block, above `enabled: env.NODE_ENV !== "test"` at line 275. Its conclusion is right and its mechanism is not — under `test`, `getIp` returns 127.0.0.1 rather than failing to resolve. Replace those six lines with:
 
@@ -518,7 +518,7 @@ falls back to 127.0.0.1."
 			 */
 ```
 
-- [ ] **Step 3: Replace the `TRUSTED_IP_HEADER` doc in `packages/env`**
+- [x] **Step 3: Replace the `TRUSTED_IP_HEADER` doc in `packages/env`**
 
 `packages/env/src/server.ts:188-197` is the block comment above `TRUSTED_IP_HEADER: z.string().min(1).optional(),` at line 198. Replace the comment, leaving line 198 untouched:
 
@@ -537,7 +537,7 @@ falls back to 127.0.0.1."
 		 */
 ```
 
-- [ ] **Step 4: Replace the `TRUSTED_PROXIES` doc**
+- [x] **Step 4: Replace the `TRUSTED_PROXIES` doc**
 
 `packages/env/src/server.ts:199-212` is the block comment above `TRUSTED_PROXIES: z` at line 213. Replace the comment, leaving lines 213-217 untouched:
 
@@ -560,7 +560,7 @@ falls back to 127.0.0.1."
 		 */
 ```
 
-- [ ] **Step 5: Prove nothing executable moved**
+- [x] **Step 5: Prove nothing executable moved**
 
 ```bash
 git diff --stat packages/auth/src/index.ts packages/env/src/server.ts
@@ -574,7 +574,7 @@ git diff -U0 packages/auth/src/index.ts packages/env/src/server.ts
 
 Expected: every added and removed line begins with `+`/`-` followed by whitespace and `*`, `/**` or `*/`. If any other line appears, a code line was caught in the replacement — revert it.
 
-- [ ] **Step 6: Prove the whole gate is green**
+- [x] **Step 6: Prove the whole gate is green**
 
 ```bash
 bun run check
@@ -582,7 +582,7 @@ bun run check
 
 Expected: unchanged from Task 2. `noExcessiveLinesPerFile` counts code lines, so the longer comments cannot trip it.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/auth/src/index.ts packages/env/src/server.ts
