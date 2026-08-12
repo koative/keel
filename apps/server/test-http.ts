@@ -1,3 +1,8 @@
+import { db } from "@keel/db";
+import { user } from "@keel/db/schema/auth";
+import { eq } from "drizzle-orm";
+
+import { env } from "@keel/env/server";
 import { app } from "@/app";
 
 export interface Envelope<T> {
@@ -55,10 +60,11 @@ export function createClient(): TestClient {
 }
 
 /**
- * Signs a fresh user up through Better Auth and returns the cookie a browser
- * would send back, with no organization attached. Route tests use the real flow
- * rather than a stubbed session, so the guard they exercise is the one that runs
- * in production.
+ * Signs a fresh user up through Better Auth, proves the address the way the
+ * verification mail's link would, and returns the cookie a browser gets from the
+ * resulting sign-in, with no organization attached. Route tests use the real
+ * flow rather than a stubbed session, so the guard they exercise is the one that
+ * runs in production.
  *
  * This is the state a user is in between signing up and onboarding: authenticated
  * but with no active organization, which every tenant-scoped route must answer
@@ -66,12 +72,35 @@ export function createClient(): TestClient {
  */
 export async function signUpWithoutOrganization(): Promise<string> {
 	const email = `${crypto.randomUUID()}@keel.test`;
-	const response = await app.request("/api/auth/sign-up/email", {
+	const password = "correct-horse-battery-staple";
+	const signUp = await app.request("/api/auth/sign-up/email", {
 		body: JSON.stringify({
 			email,
 			name: "Test Owner",
-			password: "correct-horse-battery-staple",
+			password,
 		}),
+		headers: { "Content-Type": "application/json" },
+		method: "POST",
+	});
+
+	if (!signUp.ok) {
+		throw new Error(
+			`sign-up failed (status ${signUp.status}): ${await signUp.text()}`
+		);
+	}
+
+	/**
+	 * `requireEmailVerification` refuses to issue a session for an address that
+	 * has not been proven, so the sign-up above no longer returns a cookie. The
+	 * proof is the verification mail's link, which a test cannot click — standing
+	 * in for it is marking the address verified in the database. The session then
+	 * comes from the real sign-in route, so the flow a browser runs after the
+	 * link is the one the guards below exercise.
+	 */
+	await db.update(user).set({ emailVerified: true }).where(eq(user.email, email));
+
+	const response = await app.request("/api/auth/sign-in/email", {
+		body: JSON.stringify({ email, password }),
 		headers: { "Content-Type": "application/json" },
 		method: "POST",
 	});
@@ -79,7 +108,7 @@ export async function signUpWithoutOrganization(): Promise<string> {
 	const setCookie = response.headers.get("set-cookie");
 	if (!setCookie) {
 		throw new Error(
-			`sign-up returned no cookie (status ${response.status}): ${await response.text()}`
+			`sign-in returned no cookie (status ${response.status}): ${await response.text()}`
 		);
 	}
 
