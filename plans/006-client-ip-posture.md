@@ -351,7 +351,7 @@ and a schema that throws would stop a migration over a rate-limiting question."
 - Consumes: `resolveClientIpPosture(source?: ClientIpEnv): string` from Task 1.
 - Produces: nothing other code imports. The observable output is a `[server] …` line on stdout and a non-zero exit when the guard throws.
 
-- [ ] **Step 1: Add the import**
+- [x] **Step 1: Add the import**
 
 `apps/server/src/index.ts` lines 1-5 are currently:
 
@@ -374,7 +374,7 @@ import { resolveDrain } from "@/lib/observability";
 import { app } from "./app";
 ```
 
-- [ ] **Step 2: Call it between the logger and the socket**
+- [x] **Step 2: Call it between the logger and the socket**
 
 After the `initLogger({ … })` block that ends at line 14, and before the `const server = Bun.serve({` comment that starts at line 16, insert:
 
@@ -387,7 +387,7 @@ After the `initLogger({ … })` block that ends at line 14, and before the `cons
 process.stdout.write(`[server] ${resolveClientIpPosture()}\n`);
 ```
 
-- [ ] **Step 3: Watch a production boot refuse**
+- [x] **Step 3: Watch a production boot refuse**
 
 `apps/server/.env` carries `NODE_ENV=development` and neither trusted key. `dotenv` does not override a variable already in the environment, so the shell can promote just this one:
 
@@ -397,7 +397,7 @@ cd apps/server && NODE_ENV=production bun src/index.ts
 
 Expected: no `[server] listening` line, a non-zero exit, and a stack trace whose message begins `NODE_ENV=production requires TRUSTED_IP_HEADER.` If the process instead prints `[server] listening`, the call was inserted below `Bun.serve` — move it up.
 
-- [ ] **Step 4: Watch a configured production boot succeed**
+- [x] **Step 4: Watch a configured production boot succeed**
 
 ```bash
 cd apps/server && NODE_ENV=production TRUSTED_IP_HEADER=x-forwarded-for TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12 BUN_PORT=3099 bun src/index.ts
@@ -412,7 +412,7 @@ Expected, in this order:
 
 `BUN_PORT` keeps this off 3000 in case a dev server is already running. Stop it with Ctrl-C; the existing SIGINT handler prints `[server] SIGINT received, draining` then `[server] drained`.
 
-- [ ] **Step 5: Watch the unconfigured development boot still work, and say what it does**
+- [x] **Step 5: Watch the unconfigured development boot still work, and say what it does**
 
 ```bash
 cd apps/server && BUN_PORT=3099 bun src/index.ts
@@ -426,7 +426,7 @@ Expected first line:
 
 followed by the listening line. Ctrl-C to stop. A fresh checkout must keep booting; this is the whole reason the header guard is scoped to production.
 
-- [ ] **Step 6: Prove the whole gate is green**
+- [x] **Step 6: Prove the whole gate is green**
 
 ```bash
 bun run check
@@ -434,7 +434,7 @@ bun run check
 
 Expected: unchanged from Task 1 — every task successful, same suite count, 16 architecture rules, migrations match. Nothing in the suite imports `src/index.ts`, so no test result moves.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/server/src/index.ts

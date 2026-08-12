@@ -1,6 +1,7 @@
 import { closePool } from "@keel/db";
 import { env } from "@keel/env/server";
 import { initLogger } from "evlog";
+import { resolveClientIpPosture } from "@/lib/client-ip";
 import { resolveDrain } from "@/lib/observability";
 import { app } from "./app";
 
@@ -12,6 +13,13 @@ initLogger({
 	drain: resolveDrain(),
 	env: { service: "keel-server" },
 });
+
+// Before the socket opens, and after the logger so the failure is observable.
+// One statement does both jobs: it throws when this deployment cannot identify a
+// caller, and otherwise states on stdout what the auth limiter is keyed on — the
+// answer is invisible from outside the process, and getting it wrong is only
+// noticeable during the attack it was supposed to bound.
+process.stdout.write(`[server] ${resolveClientIpPosture()}\n`);
 
 // No `port`: Bun resolves BUN_PORT, then PORT, then 3000 by itself, which is the
 // same contract `export default { fetch }` had. Serving explicitly is what
