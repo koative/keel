@@ -339,7 +339,10 @@ delivered verification mail has no business leaving its URL in a table for a yea
 `@keel/crypto/seal` is AES-256-GCM with a versioned envelope, `v1.<iv>.<tag>.<ct>`.
 The version prefix is the point: a key rotation or an algorithm change is detectable
 per row, so migrating off one does not need a flag day. Set `SECRETS_ENCRYPTION_KEY`
-to `openssl rand -base64 32` before storing a third-party token.
+to `openssl rand -base64 32` before storing a third-party token. No in-repo
+integration stores a third-party token through `seal` yet — the cipher ships tested
+and documented, and the first consumer (an OAuth provider token column, a webhook
+secret store) is where the rotation semantics become load-bearing.
 
 ## Adding a module
 

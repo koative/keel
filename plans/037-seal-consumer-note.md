@@ -34,9 +34,9 @@
 
 **Files:** `README.md`
 
-- [ ] **Step 1:** Read the README's "Secrets at rest" section (`:335-345` roughly) and the AGENTS.md mention (:21) so the wording is consistent across both docs.
-- [ ] **Step 2:** Add a sentence to the README section, in the repo's voice, e.g.: "No integration in this repository stores a third-party token through `seal` yet — the cipher ships tested and documented, and the first consumer (an OAuth provider token column, a webhook secret store) is where the rotation semantics become load-bearing." Adjust to match the section's actual prose and to agree with whatever AGENTS.md:21 already says.
-- [ ] **Step 3:** Commit: `docs(readme): seal ships with no consumer yet, and says so`.
+- [x] **Step 1:** Read the README's "Secrets at rest" section (`:335-345` roughly) and the AGENTS.md mention (:21) so the wording is consistent across both docs.
+- [x] **Step 2:** Add a sentence to the README section, in the repo's voice, e.g.: "No integration in this repository stores a third-party token through `seal` yet — the cipher ships tested and documented, and the first consumer (an OAuth provider token column, a webhook secret store) is where the rotation semantics become load-bearing." Adjust to match the section's actual prose and to agree with whatever AGENTS.md:21 already says.
+- [x] **Step 3:** Commit: `docs(readme): seal ships with no consumer yet, and says so`.
 
 ## Done when
 
