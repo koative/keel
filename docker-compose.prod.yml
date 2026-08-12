@@ -36,6 +36,12 @@ x-app-env: &app-env
   # marks optional, where it passes an absent variable through as absent rather
   # than inventing a value — `emptyStringAsUndefined` turns the empty string back
   # into `undefined` on the other side.
+
+  # AI is opt-in and both halves are guarded together by `resolveAi`, which throws
+  # on the first `ai.generate` job naming whichever is unset. Forwarded in the `:-`
+  # form so a deployment that never enqueues one still deploys.
+  AI_API_KEY: ${AI_API_KEY:-}
+  AI_MODEL: ${AI_MODEL:-}
   BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
   BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
   BODY_LIMIT_BYTES: ${BODY_LIMIT_BYTES:?BODY_LIMIT_BYTES is required}
@@ -54,7 +60,23 @@ x-app-env: &app-env
   RATE_LIMIT_READ_PER_MINUTE: ${RATE_LIMIT_READ_PER_MINUTE:?RATE_LIMIT_READ_PER_MINUTE is required}
   RATE_LIMIT_WRITE_PER_MINUTE: ${RATE_LIMIT_WRITE_PER_MINUTE:?RATE_LIMIT_WRITE_PER_MINUTE is required}
   RESEND_API_KEY: ${RESEND_API_KEY:-}
+  # Keys the AES-256-GCM cipher in `@keel/crypto/seal`. A deployment that stores no
+  # third-party secrets needs none, and the code path that reads it refuses rather
+  # than writing plaintext.
+  SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:-}
   STATEMENT_TIMEOUT_MS: ${STATEMENT_TIMEOUT_MS:?STATEMENT_TIMEOUT_MS is required}
+  # An S3-compatible bucket. Every key is optional, provider included: nothing in the
+  # starter stores a file yet, so `resolveStorage()` is the guard and it throws naming
+  # whichever is missing the first time storage is asked for. Which of these a
+  # deployment sets depends on STORAGE_PROVIDER — see .env.example.
+  STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-}
+  STORAGE_ACCOUNT_ID: ${STORAGE_ACCOUNT_ID:-}
+  STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+  STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+  STORAGE_FORCE_PATH_STYLE: ${STORAGE_FORCE_PATH_STYLE:-}
+  STORAGE_PROVIDER: ${STORAGE_PROVIDER:-}
+  STORAGE_REGION: ${STORAGE_REGION:-}
+  STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-}
   # Better Auth resolves the client IP from headers only. Leave this unset unless a
   # proxy you control rewrites the header, and read the README before setting it:
   # unset means one shared rate-limit bucket, set-but-forgeable means none at all.
