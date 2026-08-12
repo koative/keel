@@ -257,9 +257,12 @@ index, with no application-side locking.
 Work belongs here rather than in a request whenever it can outlive one. Webhook
 receivers are the clearest case: `apps/server/src/lib/webhook.ts` verifies the
 signature over the **raw bytes** — a body that was parsed and re-stringified
-produces a different digest and rejects every event — then the receiver persists the
-payload, enqueues, and returns 200. Providers retry within seconds, and an LLM or
-outbound API call does not fit inside that window.
+produces a different digest and rejects every event — refuses a delivery whose own
+timestamp is more than five minutes from now in either direction, then persists the
+payload, enqueues under the provider's event id, and returns 200. The window bounds
+a replay; the event id is what makes processing exactly-once, because
+`dedupe_key` is unique only while a job is pending. Providers retry within
+seconds, and an LLM or outbound API call does not fit inside that window.
 
 ## Transactional email
 

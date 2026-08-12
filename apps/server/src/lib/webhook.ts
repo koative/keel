@@ -161,6 +161,34 @@ export interface SignatureInput {
  * throwing. A webhook endpoint that 500s on a garbage signature confirms to an
  * attacker that their probe reached application code, and it converts the
  * provider's ordinary retry behaviour into an error storm in our own alerting.
+ *
+ * ## What a receiver still owes, after this returns true
+ *
+ * The window bounds a replay; it does not make delivery exactly-once. Inside
+ * five minutes a provider's own retry — and an attacker's replay — verifies,
+ * correctly, because it is a genuine delivery of a genuine event. Deduplication
+ * is therefore the receiver's job and it has two halves, both required:
+ *
+ * 1. **A unique index on the provider's event id**, on whatever table holds the
+ *    raw payload. This is the durable guard, and it is the one that still works
+ *    when `signedAt` is `NO_TIMESTAMP` and there is no window at all. Key it on
+ *    the provider as well as the id: two providers can and do mint the same
+ *    string.
+ * 2. **`enqueue`'s `dedupeKey` set to that same event id**, namespaced —
+ *    `webhook:<provider>:<eventId>` — so a burst of provider retries collapses
+ *    into the one job that has not started yet.
+ *
+ * The second is not a substitute for the first, and the reason is in the index
+ * rather than in the code: `job_dedupeKey_pending_idx` is unique only
+ * `WHERE status = 'pending'` (`packages/db/src/schema/job.ts`). The moment a job
+ * settles the key leaves the index and is usable again, which is exactly the
+ * behaviour that makes it a debounce and a mutex — and exactly why it cannot
+ * remember an event from ten minutes ago. A receiver that treats `dedupeKey` as
+ * its replay guard is relying on a row it has already deleted.
+ *
+ * The event id comes out of the payload, which means it is read after the
+ * signature verified and never before. An id parsed from an unverified body is
+ * an attacker-chosen primary key.
  */
 export function verifySignature({
 	header,
