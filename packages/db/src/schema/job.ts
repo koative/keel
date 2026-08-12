@@ -78,6 +78,13 @@ export const job = pgTable(
 		uniqueIndex("job_dedupeKey_unsettled_idx")
 			.on(table.dedupeKey)
 			.where(sql`${table.status} in ('pending', 'running')`),
+		// The one transition this index cannot absorb: a `done` or `failed` row
+		// released its key, so moving one back to `pending` or `running` can
+		// collide with whatever legitimately took it since. No statement does
+		// that today — `complete` and `fail` are both fenced on
+		// `status = 'running'`, which is what stops a late worker resurrecting a
+		// settled row. A future "retry this failed job" must therefore clear
+		// `dedupe_key` in the same statement, or enqueue a fresh row.
 		// The status vocabulary is enforced by the database rather than only by
 		// TypeScript: the claim and fail statements write it as raw SQL, and a
 		// typo there would otherwise silently strand rows in a state no worker

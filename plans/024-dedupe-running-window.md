@@ -518,7 +518,7 @@ has its own suite, and the case that failed before this commit is in it."
 - Consumes: Task 1's invariant — at most one row per non-null `dedupe_key` with `status IN ('pending','running')`.
 - Produces: nothing executable. This task changes only comments and prose, so `bun run check` must be green at the start of it and green at the end for the same reasons.
 
-- [ ] **Step 1: Record the one transition the index cannot absorb**
+- [x] **Step 1: Record the one transition the index cannot absorb**
 
 In `packages/db/src/schema/job.ts`, immediately after the `uniqueIndex(...)` clause Task 1 wrote and before the `check(...)` at what was line 74, add:
 
@@ -532,7 +532,7 @@ In `packages/db/src/schema/job.ts`, immediately after the `uniqueIndex(...)` cla
 		// `dedupe_key` in the same statement, or enqueue a fresh row.
 ```
 
-- [ ] **Step 2: Correct the enqueue documentation**
+- [x] **Step 2: Correct the enqueue documentation**
 
 In `packages/db/src/jobs.ts`, the `EnqueueResult` comment at line 25 says "already pending". Replace lines 24-28:
 
@@ -566,7 +566,7 @@ And the function's doc at lines 30-42, whose first line says "already waiting":
  */
 ```
 
-- [ ] **Step 3: Correct the mail queue's paragraph**
+- [x] **Step 3: Correct the mail queue's paragraph**
 
 In `packages/mail/src/queue.ts`, replace lines 19-26 — the paragraph ending `*/`:
 
@@ -582,7 +582,7 @@ In `packages/mail/src/queue.ts`, replace lines 19-26 — the paragraph ending `*
  */
 ```
 
-- [ ] **Step 4: Correct the password-reset call site**
+- [x] **Step 4: Correct the password-reset call site**
 
 In `packages/auth/src/index.ts`, replace the comment at lines 158-161:
 
@@ -595,7 +595,7 @@ In `packages/auth/src/index.ts`, replace the comment at lines 158-161:
 
 The two `enqueueMail` calls below it are unchanged; their keys were already right.
 
-- [ ] **Step 5: Say what the key now costs on the paid path**
+- [x] **Step 5: Say what the key now costs on the paid path**
 
 In `packages/ai/src/queue.ts`, replace the `dedupeKey` comment at lines 11-21:
 
@@ -619,7 +619,7 @@ In `packages/ai/src/queue.ts`, replace the `dedupeKey` comment at lines 11-21:
 	dedupeKey?: string;
 ```
 
-- [ ] **Step 6: Correct the README paragraph**
+- [x] **Step 6: Correct the README paragraph**
 
 In `README.md`, replace lines 252-255. Prose only — plan 021 owns this file's test and file counts, and none of them appear here:
 
@@ -631,11 +631,11 @@ becomes usable again once that job is `done` or `failed`. A debounce and a mutex
 in one index, with no application-side locking.
 ```
 
-- [ ] **Step 7: Correct the one word in AGENTS.md**
+- [x] **Step 7: Correct the one word in AGENTS.md**
 
 `AGENTS.md:48` reads `private to that module — and takes a `dedupeKey` to collapse duplicate pending`. Replace `pending` with `in-flight` on that line and change nothing else. Plan 021 owns this file's length, so the line count must not move.
 
-- [ ] **Step 8: Prove the whole gate is green**
+- [x] **Step 8: Prove the whole gate is green**
 
 ```bash
 bun run check
@@ -643,7 +643,7 @@ bun run check
 
 Expected: identical to Task 1, Step 12. Nothing executable changed, so any new failure is a line-length or formatting complaint from Biome about the comments above — fix it in place rather than shortening the explanation into uselessness.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/db/src/schema/job.ts packages/db/src/jobs.ts packages/mail/src/queue.ts packages/auth/src/index.ts packages/ai/src/queue.ts README.md AGENTS.md

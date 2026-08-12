@@ -22,13 +22,17 @@ export interface EnqueueInput {
 }
 
 export interface EnqueueResult {
-	/** False when an equal dedupe key was already pending, so nothing was added. */
+	/** False when an equal dedupe key was already in flight, so nothing was added. */
 	created: boolean;
 	id: string | null;
 }
 
 /**
- * Adds a job, unless `dedupeKey` names work that is already waiting.
+ * Adds a job, unless `dedupeKey` names work that is already in flight.
+ *
+ * In flight means `pending` or `running`: the key is held from the moment the
+ * work is queued until the moment it settles, so a duplicate raised while the
+ * first job is executing collapses into it rather than running beside it.
  *
  * The conflict is swallowed rather than raised, which is the opposite of what
  * `withUniqueConflict` does for a user-facing insert: there a duplicate is the

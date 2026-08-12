@@ -164,9 +164,9 @@ export function createAuth() {
 			 */
 			sendResetPassword: async ({ url, user }) => {
 				// Keyed on the address, not the token: "forgot password" clicked three
-				// times is three tokens and should still be one email. The key frees
-				// itself as soon as the pending job is claimed, so an honest retry
-				// minutes later sends again.
+				// times is three tokens and should still be one email. The key is held
+				// until the send has finished, so a burst collapses into one message
+				// while an honest retry once that one has gone out sends again.
 				await enqueueMail(
 					passwordResetEmail({ to: user.email, url }),
 					`mail:password-reset:${user.email}`

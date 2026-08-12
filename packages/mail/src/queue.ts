@@ -19,10 +19,11 @@ const KIND = "mail.send";
  * `dedupeKey` is required, not optional, because the endpoints that produce mail
  * here are all ones a user can hit repeatedly on purpose: "resend verification"
  * pressed three times is three requests, and the right outcome is one email.
- * While a mail for the same key is still pending, a second enqueue collapses
- * into it; once that one is claimed the key is free again, so a genuine resend
- * an hour later still works. Callers pick a key that names the message — the
- * recipient and what it is for — not one that names the attempt.
+ * The key is held for as long as the mail is in flight — queued or being sent —
+ * so a second enqueue collapses into the first for the whole of it, and the key
+ * frees itself once the send has finished. A genuine resend an hour later still
+ * works. Callers pick a key that names the message — the recipient and what it
+ * is for — not one that names the attempt.
  */
 export async function enqueueMail(
 	message: MailMessage,

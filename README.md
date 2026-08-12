@@ -250,9 +250,10 @@ the server: a `setInterval` sweeps once per replica, and never at all on a
 deployment that scales to zero.
 
 The load-bearing detail is one index: `dedupe_key` is unique only
-`WHERE status = 'pending'`. Enqueue collapses duplicate pending work, and the same
-key becomes usable again once the earlier job settles. A debounce and a mutex in one
-index, with no application-side locking.
+`WHERE status IN ('pending', 'running')`. Enqueue collapses duplicate work for as
+long as the earlier job is in flight — queued or executing — and the same key
+becomes usable again once that job is `done` or `failed`. A debounce and a mutex
+in one index, with no application-side locking.
 
 Work belongs here rather than in a request whenever it can outlive one. Webhook
 receivers are the clearest case: `apps/server/src/lib/webhook.ts` verifies the

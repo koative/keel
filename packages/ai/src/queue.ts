@@ -17,6 +17,12 @@ export interface GenerationRequest {
 	 * derived from the prompt would silently swallow it. So: a key when the work
 	 * is idempotent by nature (summarise this document), none when the user asked
 	 * for another answer.
+	 *
+	 * A key is held until the generation settles, not until a worker picks it up,
+	 * so "try that again" pressed while the first completion is still running is
+	 * swallowed too. That is the point for the idempotent case — it is the second
+	 * charge that does not happen — and it is the reason the other case must pass
+	 * no key at all rather than a slightly different one.
 	 */
 	dedupeKey?: string;
 	/**
