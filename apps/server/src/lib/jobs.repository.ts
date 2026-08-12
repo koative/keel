@@ -111,18 +111,79 @@ export async function claim(
 }
 
 /**
- * Marks a job done. Terminal: no index and no query looks at it again.
+ * Marks a job done, and reports whether it was this call that did it. Terminal:
+ * no index and no query looks at a `done` row again.
  *
  * Fenced on `status = 'running'` and on the claiming worker's own id, so it can
  * only settle a job this worker still owns. Keyed on `id` alone it would be a
  * double-execution bug waiting for a reaper: the moment anything reclaims a
  * stalled row, a merely slow original worker finishing its handler would mark
  * done work a second worker is still running.
+ *
+ * The boolean is what makes the fence usable rather than merely safe. Zero rows
+ * is not an error — it is "the row is no longer both running and mine", which
+ * happens when a previous attempt at this same statement committed but its
+ * acknowledgement was lost, and again when a reaper has already taken the row
+ * away. The caller has to be able to tell that apart from a settled job, because
+ * one of them means the queue now has a record of the outcome and the other
+ * means it does not.
  */
-export async function complete(id: string, workerId: string): Promise<void> {
-	await db
+export async function complete(id: string, workerId: string): Promise<boolean> {
+	const settled = await db
 		.update(job)
 		.set({ lockedAt: null, lockedBy: null, status: "done" })
+		.where(
+			and(eq(job.id, id), eq(job.lockedBy, workerId), eq(job.status, "running"))
+		)
+		.returning({ id: job.id });
+
+	return settled.length === 1;
+}
+
+/**
+ * What `last_error` says when the failure was the queue's, not the handler's.
+ *
+ * A prefix rather than a column, because this is for whoever reads a job row and
+ * has to know that the work in it happened — inventing a column would mean a
+ * migration for a string only a human ever reads. It is deliberately not a
+ * control signal: nothing branches on it, because a handler is free to throw a
+ * message starting with anything. What tells the two kinds apart mechanically is
+ * the row itself — a handler failure leaves `status` pending or failed with
+ * `locked_by` null, a settlement failure leaves it running and still locked.
+ */
+export const SETTLEMENT_ERROR_PREFIX =
+	"settlement failed after handler succeeded: ";
+
+/**
+ * Notes on a job that ran but could not be marked done.
+ *
+ * The point of this statement is everything it does NOT set. `attempts`,
+ * `run_at` and `status` are untouched: the handler succeeded, so no attempt was
+ * spent, there is nothing to back off from, and re-arming the row would be a
+ * request to run the side effect a second time. `locked_at` and `locked_by` are
+ * untouched too, so the lease a reaper reads is neither extended nor released by
+ * a purely diagnostic write. `updated_at` does move, because the column's
+ * `$onUpdate` fires on every Drizzle update — which is why a lease must be keyed
+ * off `locked_at` and never off `updated_at`.
+ *
+ * Fenced exactly like `complete`, so a worker whose row has already been taken
+ * away writes nothing rather than scribbling on a job somebody else is running.
+ * That makes this a best-effort note by design: it is written over the same pool
+ * that just refused, and losing it costs a line of context, not correctness.
+ */
+export async function markUnsettled(
+	id: string,
+	workerId: string,
+	error: unknown
+): Promise<void> {
+	await db
+		.update(job)
+		.set({
+			lastError: `${SETTLEMENT_ERROR_PREFIX}${describeError(error)}`.slice(
+				0,
+				MAX_ERROR_LENGTH
+			),
+		})
 		.where(
 			and(eq(job.id, id), eq(job.lockedBy, workerId), eq(job.status, "running"))
 		);
