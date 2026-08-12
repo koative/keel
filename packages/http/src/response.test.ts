@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { errorSchema } from "./envelope";
-import { testApp } from "./test-app";
+import { testApp } from "./response.fixtures";
 
 const UUID = /^[0-9a-f-]{36}$/;
 

@@ -6,9 +6,9 @@ import { type Cursor, decodeCursor } from "@/lib/cursor";
  *
  * Removing a field, tightening a constraint or renaming anything here breaks
  * integrations that update on their own schedule. Additive changes are allowed;
- * anything else needs a v2 alongside this file. `projects.v1.contract.test.ts`
- * snapshots the JSON Schema so a careless edit fails the build instead of a
- * customer's pipeline.
+ * anything else needs a v2 alongside this file.
+ * `projects.v1.routes.contract.test.ts` snapshots the JSON Schema so a careless
+ * edit fails the build instead of a customer's pipeline.
  *
  * Note what is absent versus `internal/projects.schema.ts`: no `createdBy` (an
  * internal user identifier), no `updatedAt` (an implementation detail we are not

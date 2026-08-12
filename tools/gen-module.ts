@@ -560,7 +560,7 @@ import { ${camel}IdV1Schema, ${camel}ListV1Schema, ${camel}PageV1Schema, ${camel
 /**
  * \`/v1/${name}\` — the customer-facing contract, and the only surface that appears
  * in the OpenAPI document. Every status an operation can return must be listed
- * here, and mirrored in ${name}.v1.contract.test.ts.
+ * here, and mirrored in ${name}.v1.routes.contract.test.ts.
  */
 
 const TAGS = ["${pascal}"];
@@ -747,6 +747,6 @@ expiry date, so it takes three deliberate steps:
   - .route("/v1/${name}", public${pascal}RoutesV1) in ${APP}
   - export it from ${dir}/index.ts
   - add it to the expected operations in apps/server/src/app.test.ts, and write
-    ${name}.v1.contract.test.ts
+    ${name}.v1.routes.contract.test.ts
 
 See .claude/skills/server-module/SKILL.md.`);

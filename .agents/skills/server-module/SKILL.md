@@ -89,7 +89,7 @@ expiry date, so it takes a deliberate edit. Then fill it in, in this order:
 Service first, then the repository query it needs, then the surface. Adding to
 `internal/` is cheap. Adding to `public/` publishes a promise: it needs a
 `createRoute` definition listing **every** status it can return, and a matching
-expectation in `<domain>.v1.contract.test.ts`.
+expectation in `<domain>.v1.routes.contract.test.ts`.
 
 ## Errors
 
@@ -126,10 +126,17 @@ in-between state that must produce a 403. Two tests are not optional for a
 tenant-scoped module: another organization's row is a **404 and not a 403**, and
 a unique index keyed on the organization admits the same value in two tenants.
 
-Tests live beside the code, never in `__tests__`. Integration suites gate on
-`testDbReady()` and announce the skip. Do not mock Drizzle — the thing under test
-is whether the query is right. Do not test Zod, Hono or Drizzle themselves, and do
-not chase a coverage number.
+Tests live beside the code, never in `__tests__`, and the name says what they
+cover: `<subject>[.<aspect>].test.ts` next to `<subject>.ts`, so
+`projects.repository.paging.test.ts` reads as the second suite over
+`projects.repository.ts`. Test doubles are `<subject>.fixtures.ts` in the same
+directory. A package-wide harness — a preload, an HTTP client, a seeder — is not
+application source: it lives at the package root as `test-<what>.ts`.
+`bun tools/check-naming.ts` enforces all three and runs in `bun run check`.
+
+Integration suites gate on `testDbReady()` and announce the skip. Do not mock
+Drizzle — the thing under test is whether the query is right. Do not test Zod,
+Hono or Drizzle themselves, and do not chase a coverage number.
 
 Never add a `__snapshots__` file for a public contract. `bun test -u` can re-bless
 one without anyone reading the diff, which is the accident the contract test exists

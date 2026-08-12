@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { type DrainContext, initLogger } from "evlog";
 import { errorSchema } from "./envelope";
-import { appWithoutLogger, LEAKED_SECRET, testApp } from "./test-app";
+import { appWithoutLogger, LEAKED_SECRET, testApp } from "./response.fixtures";
 
 describe("unexpected failures", () => {
 	it("never forwards the thrown message", async () => {
