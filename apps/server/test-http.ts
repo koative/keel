@@ -2,7 +2,6 @@ import { db } from "@keel/db";
 import { user } from "@keel/db/schema/auth";
 import { eq } from "drizzle-orm";
 
-import { env } from "@keel/env/server";
 import { app } from "@/app";
 
 export interface Envelope<T> {
