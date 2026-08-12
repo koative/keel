@@ -36,13 +36,13 @@
 
 **Files:** `apps/server/src/lib/idempotency.test.ts`
 
-- [ ] **Step 1:** Read the existing boom-handler test at `:114-127` — how it mounts the throwing route, what it asserts. Check how it imports `app` (or builds one) and whether the failure passes through the real `app.onError`.
-- [ ] **Step 2:** Add envelope assertions to that test (or a sibling test with the same mounting): on the 500 response, parse the body and assert:
+- [x] **Step 1:** Read the existing boom-handler test at `:114-127` — how it mounts the throwing route, what it asserts. Check how it imports `app` (or builds one) and whether the failure passes through the real `app.onError`.
+- [x] **Step 2:** Add envelope assertions to that test (or a sibling test with the same mounting): on the 500 response, parse the body and assert:
   - `body.error.code` equals the constant `packages/http` uses for server failures (read it from `packages/http/src/errors.ts`/`response.ts` — likely `INTERNAL`; do not hardcode a guessed string, import or reference the real name),
   - `body.error.requestId` is a non-empty string (and, if the app sets a request-id header, that it matches),
   - `body.error.message` does **not** contain the thrown error's text (that is the mask — the boom error's message must not leak).
-- [ ] **Step 3:** Run the suite: `cd apps/server && bun test src/lib/idempotency.test.ts` — green (explicit path; the suite needs the test DB for other cases, but verify this test runs).
-- [ ] **Step 4:** Commit: `test(server): a thrown handler stays masked through the real onError`.
+- [x] **Step 3:** Run the suite: `cd apps/server && bun test src/lib/idempotency.test.ts` — green (explicit path; the suite needs the test DB for other cases, but verify this test runs).
+- [x] **Step 4:** Commit: `test(server): a thrown handler stays masked through the real onError`.
 
 ## Done when
 

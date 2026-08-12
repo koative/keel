@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { db } from "@keel/db";
 import { idempotencyKey } from "@keel/db/schema/idempotency";
+import { errorSchema } from "@keel/http/envelope";
 import { created, failure } from "@keel/http/response";
+import type { ErrorCode } from "@keel/http/status";
 import { eq } from "drizzle-orm";
 import { evlog } from "evlog/hono";
 import { Hono } from "hono";
@@ -59,6 +61,12 @@ function post(app: Hono<AppEnv>, path: string, body: unknown, key?: string) {
 const storedFor = (actorId: string) =>
 	db.select().from(idempotencyKey).where(eq(idempotencyKey.actorId, actorId));
 
+// The wire code a server failure carries through the real onError is the key
+// name of the 500 status in @keel/http's single table (response.ts maps the
+// status to its own key name). Typed as ErrorCode so a rename in that table
+// fails this test.
+const INTERNAL_CODE: ErrorCode = "INTERNAL_SERVER_ERROR";
+
 describe.skipIf(!ready)("idempotency middleware", () => {
 	it("passes a request without the header straight through", async () => {
 		const actorId = await seedUser();
@@ -77,7 +85,6 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 		const actorId = await seedUser();
 		const { app, calls } = buildApp(actorId);
 		const key = crypto.randomUUID();
-
 		const first = await post(app, "/things", { name: "once" }, key);
 		const second = await post(app, "/things", { name: "once" }, key);
 
@@ -92,7 +99,6 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 		const actorId = await seedUser();
 		const { app, calls } = buildApp(actorId);
 		const key = crypto.randomUUID();
-
 		await post(app, "/things", { name: "first" }, key);
 		const response = await post(app, "/things", { name: "second" }, key);
 
@@ -104,7 +110,6 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 		const actorId = await seedUser();
 		const { app, calls } = buildApp(actorId);
 		const key = crypto.randomUUID();
-
 		await post(app, "/things", { name: "first" }, key);
 		const response = await post(app, "/others", { name: "first" }, key);
 
@@ -116,11 +121,15 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 		const actorId = await seedUser();
 		const { app, calls } = buildApp(actorId);
 		const key = crypto.randomUUID();
-
 		const first = await post(app, "/things", { boom: true, name: "x" }, key);
 		expect(first.status).toBe(500);
+		// The thrown message stays masked through the real onError: the client
+		// sees the server-failure code, a correlatable id, and none of the text.
+		const firstBody = errorSchema.parse(await first.json());
+		expect(firstBody.error.code).toBe(INTERNAL_CODE);
+		expect(firstBody.error.requestId.length).toBeGreaterThan(0);
+		expect(firstBody.error.message).not.toContain("handler exploded");
 		expect(await storedFor(actorId)).toHaveLength(0);
-
 		const retry = await post(app, "/things", { boom: true, name: "x" }, key);
 
 		expect(retry.status).toBe(500);
@@ -130,7 +139,6 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 	it("rejects an empty or over-long key as a 400", async () => {
 		const actorId = await seedUser();
 		const { app, calls } = buildApp(actorId);
-
 		const empty = await post(app, "/things", { name: "x" }, "   ");
 		const long = await post(app, "/things", { name: "x" }, "k".repeat(256));
 
@@ -146,7 +154,6 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 		const actorId = await seedUser();
 		const { app, calls } = buildApp(actorId);
 		const key = crypto.randomUUID();
-
 		await insert({
 			actorId,
 			expiresAt: new Date(Date.now() - 1000),
@@ -177,7 +184,6 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 			response: { body: "{}" },
 			status: 201,
 		};
-
 		await insert({
 			...base,
 			expiresAt: new Date(Date.now() - 1000),
