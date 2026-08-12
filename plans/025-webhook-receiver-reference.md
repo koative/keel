@@ -12,7 +12,7 @@
 3. The fixed receiver order (:4-14): verify signature over the raw bytes (`await c.req.arrayBuffer()`) → persist raw payload → enqueue → return 200. Nothing else happens first.
 4. `signedAt` MUST be parsed from the same bytes passed as `signedPrefix` (:103-117) — the invariant that makes the timestamp authenticated.
 5. No receiver module exists (grep of `apps/server/src/modules/` for webhook: zero matches).
-6. Migration numbering: 0006 is owned by plan 012, 0007 by plan 023 — this plan owns the **next** migration number (0008) and is sequenced after both. Confirm the current highest migration before generating.
+6. Migration numbering: 0006 is owned by plan 012, and 023 (CORR-05) edited 0001 in place and added **no** migration — so the current highest is 0006 and this plan generated **0007** (the original text said 0008, written before 023's outcome). Confirmed against the tree before generating.
 
 ## Global Constraints
 
@@ -21,7 +21,7 @@
 - No file over 200 code lines.
 - Test DB is up; `bun run db:test:migrate` once before DB tests.
 - Internal surface only (`/api/...`), envelope responses via `@keel/http`.
-- This plan runs `drizzle-kit generate` (migration 0008) — no other plan in the same wave may.
+- This plan runs `drizzle-kit generate` (migration 0007) — no other plan in the same wave may.
 - The module must follow the repo's module structure exactly: `apps/server/src/modules/<name>/` with `internal/`, a single `index.ts` export, and tests mirroring the projects reference module.
 
 ## Do not
@@ -39,7 +39,7 @@
 |---|---|
 | `packages/db/src/schema/webhook-event.ts` | **Create.** The raw-payload table. |
 | `packages/db/src/schema/index.ts` | **Modify.** Export it. |
-| `packages/db/src/migrations/0008_webhook_event.sql` + meta | **Create** (drizzle-kit generate). |
+| `packages/db/src/migrations/0007_webhook_event.sql` + meta | **Create** (drizzle-kit generate). |
 | `apps/server/src/modules/webhooks/internal/webhooks.schema.ts` | **Create.** Zod schemas (provider, header, timestamp parsing). |
 | `apps/server/src/modules/webhooks/internal/webhooks.handlers.ts` | **Create.** Verify → persist → enqueue → 200. |
 | `apps/server/src/modules/webhooks/internal/webhooks.routes.ts` | **Create.** The POST route. |
@@ -51,11 +51,11 @@
 
 ### Task 1: The durable payload table
 
-**Files:** schema + migration 0008
+**Files:** schema + migration 0007
 
-- [ ] **Step 1:** Read `packages/db/src/schema/` (job.ts, ai-usage.ts) for the table style (pgTable, timestamps with `$onUpdate`, text pk or uuid). Create `webhook-event` with: `id` (uuid/text pk), `provider` (text), `event_id` (text), `raw_body` (text or jsonb — the payload is persisted as received; check what the job payload will carry and pick text for byte-fidelity, per plan 022's "exact bytes" reasoning), `received_at` timestamp, and a **unique index on (provider, event_id)**. No FK to organization (webhooks may target resources; keep the receiver generic — if tenancy applies, the handler reads org from the payload after verification, but the table itself is not tenant-scoped; say so in a comment).
-- [ ] **Step 2:** Generate migration 0008 via `drizzle-kit generate` (confirm the current highest migration number first — 0007 after plan 023 lands — and name it `webhook_event`), format the meta files like the committed ones (formatter-compact — see plan 024's post-landing fix), and run `bun run db:test:migrate` + `bun tools/check-migrations.ts` green.
-- [ ] **Step 3:** Commit: `feat(db): raw webhook events, unique per provider and event id`.
+- [x] **Step 1:** Read `packages/db/src/schema/` (job.ts, ai-usage.ts) for the table style (pgTable, timestamps with `$onUpdate`, text pk or uuid). Create `webhook-event` with: `id` (uuid/text pk), `provider` (text), `event_id` (text), `raw_body` (text or jsonb — the payload is persisted as received; check what the job payload will carry and pick text for byte-fidelity, per plan 022's "exact bytes" reasoning), `received_at` timestamp, and a **unique index on (provider, event_id)**. No FK to organization (webhooks may target resources; keep the receiver generic — if tenancy applies, the handler reads org from the payload after verification, but the table itself is not tenant-scoped; say so in a comment). Chose `text` for `raw_body` (the job payload carries `{ provider, eventId, receivedAt }`, never the body — a jsonb round trip would normalise the bytes) and added a nullable `processed_at` (the worker's durable marker, see Task 2 Step 5).
+- [x] **Step 2:** Generate migration 0007 via `drizzle-kit generate` (confirmed the current highest was 0006 — plan 023 added no migration — and named it `webhook_event`), formatted the meta files like the committed ones (formatter-compact — drizzle-kit 0.31 emits expanded arrays; the committed snapshots are biome-formatted with inline arrays), and ran `bun run db:test:migrate` + `bun tools/check-migrations.ts` green (8 migrations, schema matches).
+- [x] **Step 3:** Commit: `feat(db): raw webhook events, unique per provider and event id`.
 
 ### Task 2: Verify, persist, enqueue, 200
 
@@ -80,7 +80,7 @@
 
 - `POST /api/webhooks/:provider` verifies over the raw bytes, persists under a unique (provider, event id), enqueues with the namespaced dedupeKey, returns 200; replays are idempotent with no double execution.
 - The worker has a minimal `webhook.process` handler.
-- Migration 0008 applies; check-migrations green; all module tests pass.
+- Migration 0007 applies; check-migrations green; all module tests pass.
 
 ## Out of scope
 
