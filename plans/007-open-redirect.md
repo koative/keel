@@ -36,7 +36,7 @@
 
 **Files:** `apps/web/src/routes/login.tsx`
 
-- [ ] **Step 1:** Replace the `redirect` schema:
+- [x] **Step 1:** Replace the `redirect` schema:
   ```ts
   validateSearch: z.object({
     // A search parameter is attacker-controlled, and it is navigated to with
@@ -53,14 +53,14 @@
   }),
   ```
   If the file already imports `z`, reuse it. Do not introduce a regex that accepts `//`.
-- [ ] **Step 2:** Keep `:20` (`redirect ?? "/dashboard"`) as-is — the fallback is now the only way a non-relative value is handled, since validation rejects it at parse time. If TanStack Router applies `validateSearch` with coercion, confirm the `undefined` case passes (an absent parameter must still allow the default).
-- [ ] **Step 3:** Build the web app to prove the change compiles: `cd apps/web && bun run build`. Expected: vite build succeeds.
-- [ ] **Step 4:** Browser-drive the proof (real Chromium): serve the built SPA on a local port with `VITE_SERVER_URL=/api` (see plan 001's browser verification pattern), then:
+- [x] **Step 2:** Keep `:20` (`redirect ?? "/dashboard"`) as-is — the fallback is now the only way a non-relative value is handled, since validation rejects it at parse time. If TanStack Router applies `validateSearch` with coercion, confirm the `undefined` case passes (an absent parameter must still allow the default).
+- [x] **Step 3:** Build the web app to prove the change compiles: `cd apps/web && bun run build`. Expected: vite build succeeds.
+- [x] **Step 4:** Browser-drive the proof (real Chromium): serve the built SPA on a local port with `VITE_SERVER_URL=/api` (see plan 001's browser verification pattern), then:
   - Navigate to `/login?redirect=https://evil.example` → sign in flow must **not** navigate to `https://evil.example`; assert the redirect target resolves to `/dashboard` (observe the URL after submit, or the router's href).
   - Navigate to `/login?redirect=/dashboard` → sign-in navigates to `/dashboard` as before.
   - Navigate to `/login?redirect=//evil.example` → must NOT navigate off-origin.
   If driving a full sign-in in the browser is impractical without a backend, at minimum assert the search-param validation rejects the absolute and protocol-relative values while accepting `/dashboard` (e.g. via a temporary console probe in the built bundle or a headless evaluation of the schema), and record exactly what was exercised.
-- [ ] **Step 5:** Commit: `fix(web): the redirect after sign-in must stay on this origin`.
+- [x] **Step 5:** Commit: `fix(web): the redirect after sign-in must stay on this origin`.
 
 ## Done when
 
