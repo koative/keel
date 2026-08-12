@@ -1,4 +1,4 @@
-import { enqueue } from "@keel/db/jobs";
+import { type EnqueueResult, enqueue } from "@keel/db/jobs";
 
 /**
  * The kind the worker registers a handler for. Kept here rather than at the call
@@ -40,13 +40,17 @@ export interface GenerationRequest {
  * Nothing generates inside a request. A completion takes seconds, sometimes
  * tens of them, which does not fit in a request budget — and a provider that is
  * down would turn the user's action into a 504 after it had already succeeded
- * everywhere else. Streaming a response to a browser is the exception, and it is
- * a UI concern the AI SDK handles in a few lines; it is deliberately not this.
+ * everywhere else. Streaming a response to a browser is the exception, and it
+ * is a UI concern the AI SDK handles in a few lines; it is deliberately not this.
+ *
+ * Returns exactly what the database reported: `created` is false — and `id`
+ * null — when `dedupeKey` named work that is already in flight, so a caller can
+ * tell a fresh job from a second enqueue that collapsed into it.
  */
-export async function enqueueGeneration(
+export function enqueueGeneration(
 	request: GenerationRequest
-): Promise<void> {
-	await enqueue({
+): Promise<EnqueueResult> {
+	return enqueue({
 		dedupeKey: request.dedupeKey,
 		kind: KIND,
 		payload: {

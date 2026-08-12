@@ -44,13 +44,13 @@
 
 **Files:** the module files above, `apps/server/src/app.ts`
 
-- [ ] **Step 1:** Read `packages/ai/src/queue.ts` fully (it is small) — the `enqueueGeneration` signature, `GenerationRequest`, the dedupe-key comment, and whether it returns the job id (it returns `Promise<void>` today — check whether the job id is reachable; if the endpoint must return it, extend `enqueueGeneration` to return `{ created: boolean; id: string | null }` like `@/lib/jobs`'s `enqueue`, and update its only consumers — there are none, so the signature change is safe). Prefer returning the id: the endpoint's whole value is "here is your job".
-- [ ] **Step 2:** Schema: `POST /api/ai/generate` with `{ prompt: string (min 1, max N — pick a sane bound and say why in the schema comment), dedupeKey?: string }`. Validate prompt length to bound the persisted payload (the job row stores it).
-- [ ] **Step 3:** Handler: build `GenerationRequest` from the validated body + `c.get("organizationId")`, call `enqueueGeneration`, return `{ jobId }` (or `{ created, jobId }`) in the envelope.
-- [ ] **Step 4:** Mount in `app.ts` under `/api/ai`, mirroring the projects internal mount exactly.
-- [ ] **Step 5:** Tests (mirror `projects.routes.test.ts`): unauthenticated → 401; no org → 403/404 per tenancy rules; empty prompt → 422; valid → 200 with `data.jobId` (and `created: true`); same dedupeKey twice → second returns `created: false` with the same id (if the queue returns it) — this is the dedupe contract proven through the real app. DB-gated like the reference suite (test DB needed for the enqueue).
-- [ ] **Step 6:** Run: `cd apps/server && bun test src/modules/ai/...` — green.
-- [ ] **Step 7:** Commit: `feat(server): enqueue an AI generation on the internal surface`.
+- [x] **Step 1:** Read `packages/ai/src/queue.ts` fully (it is small) — the `enqueueGeneration` signature, `GenerationRequest`, the dedupe-key comment, and whether it returns the job id (it returns `Promise<void>` today — check whether the job id is reachable; if the endpoint must return it, extend `enqueueGeneration` to return `{ created: boolean; id: string | null }` like `@/lib/jobs`'s `enqueue`, and update its only consumers — there are none, so the signature change is safe). Prefer returning the id: the endpoint's whole value is "here is your job".
+- [x] **Step 2:** Schema: `POST /api/ai/generate` with `{ prompt: string (min 1, max N — pick a sane bound and say why in the schema comment), dedupeKey?: string }`. Validate prompt length to bound the persisted payload (the job row stores it).
+- [x] **Step 3:** Handler: build `GenerationRequest` from the validated body + `c.get("organizationId")`, call `enqueueGeneration`, return `{ jobId }` (or `{ created, jobId }`) in the envelope.
+- [x] **Step 4:** Mount in `app.ts` under `/api/ai`, mirroring the projects internal mount exactly.
+- [x] **Step 5:** Tests (mirror `projects.routes.test.ts`): unauthenticated → 401; no org → 403/404 per tenancy rules; empty prompt → 422; valid → 200 with `data.jobId` (and `created: true`); same dedupeKey twice → second returns `created: false` with the same id (if the queue returns it) — this is the dedupe contract proven through the real app. DB-gated like the reference suite (test DB needed for the enqueue).
+- [x] **Step 6:** Run: `cd apps/server && bun test src/modules/ai/...` — green.
+- [x] **Step 7:** Commit: `feat(server): enqueue an AI generation on the internal surface`.
 
 ## Done when
 
