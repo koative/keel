@@ -619,7 +619,7 @@ the shared key is \`127.0.0.1|<path>\`, not \`no-trusted-ip|<path>\`."
 - Consumes: nothing.
 - Produces: nothing. Operator-facing text only.
 
-- [ ] **Step 1: Rewrite the `.env.example` block**
+- [x] **Step 1: Rewrite the `.env.example` block**
 
 Lines 146-157 currently document both keys as commented examples. Keep them commented — neither is required to boot a laptop — and replace the prose:
 
@@ -642,7 +642,7 @@ Lines 146-157 currently document both keys as commented examples. Keep them comm
 # TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12
 ```
 
-- [ ] **Step 2: Rewrite the compose comment, and only the comment**
+- [x] **Step 2: Rewrite the compose comment, and only the comment**
 
 `docker-compose.prod.yml` lines 58-62 are the comment above the two keys. Replace those five lines with:
 
@@ -657,7 +657,7 @@ Lines 146-157 currently document both keys as commented examples. Keep them comm
 
 Lines 63-64 keep `${TRUSTED_IP_HEADER:-}` and `${TRUSTED_PROXIES:-}` byte for byte. Plan 019 owns the key list.
 
-- [ ] **Step 3: Rewrite the README row**
+- [x] **Step 3: Rewrite the README row**
 
 `README.md:100` is the `TRUSTED_IP_HEADER` row of the "Going to production" table. Replace that one line with:
 
@@ -667,7 +667,7 @@ Lines 63-64 keep `${TRUSTED_IP_HEADER:-}` and `${TRUSTED_PROXIES:-}` byte for by
 
 Add no row and remove none: the sentence at `README.md:94` still says "Five of those choices", and it stays true. Plan 021 owns README counts.
 
-- [ ] **Step 4: Prove the gate is green**
+- [x] **Step 4: Prove the gate is green**
 
 ```bash
 bun run check
@@ -675,7 +675,7 @@ bun run check
 
 Expected: unchanged. None of these three files is compiled, linted as source, or imported by a test; this run is confirming that, not measuring it.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .env.example docker-compose.prod.yml README.md

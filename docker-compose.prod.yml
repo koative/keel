@@ -77,11 +77,12 @@ x-app-env: &app-env
   STORAGE_PROVIDER: ${STORAGE_PROVIDER:-}
   STORAGE_REGION: ${STORAGE_REGION:-}
   STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-}
-  # Better Auth resolves the client IP from headers only. Leave this unset unless a
-  # proxy you control rewrites the header, and read the README before setting it:
-  # unset means one shared rate-limit bucket, set-but-forgeable means none at all.
-  # TRUSTED_PROXIES is required alongside it whenever the header can hold more than
-  # one address, which is the normal case.
+  # Better Auth reads x-forwarded-for by default even when nothing is configured, so
+  # an unset header is not a coarse shared bucket — it is a bucket the caller picks.
+  # The server refuses to start with NODE_ENV=production unless TRUSTED_IP_HEADER
+  # names the header the proxy in front of it rewrites and TRUSTED_PROXIES lists
+  # every hop as IPs or CIDR ranges. Left `:-` rather than `:?` on purpose: migrate
+  # and worker share this block and neither serves an authenticated request.
   TRUSTED_IP_HEADER: ${TRUSTED_IP_HEADER:-}
   TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
   # Pinned rather than inherited from the base image, because the Better Auth tables
