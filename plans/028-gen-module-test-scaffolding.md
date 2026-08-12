@@ -35,15 +35,15 @@
 
 **Files:** `tools/gen-module.ts`
 
-- [ ] **Step 1:** Read the generator's file map and the `files: Record<string, string>` emission points (:47, :153, :188, :256, :406). Read the reference module's `projects.routes.test.ts`, `projects.routes.tenancy.test.ts` and `projects.repository.test.ts` to extract the skeleton shapes (which imports, which app/DB wiring, which assertions are generic vs project-specific).
-- [ ] **Step 2:** Add two (or three) entries to the file map, with the module name substituted, mirroring the reference skeletons but generic:
+- [x] **Step 1:** Read the generator's file map and the `files: Record<string, string>` emission points (:47, :153, :188, :256, :406). Read the reference module's `projects.routes.test.ts`, `projects.routes.tenancy.test.ts` and `projects.repository.test.ts` to extract the skeleton shapes (which imports, which app/DB wiring, which assertions are generic vs project-specific).
+- [x] **Step 2:** Add two (or three) entries to the file map, with the module name substituted, mirroring the reference skeletons but generic:
   - `internal/<name>.routes.test.ts` — mounts the module's internal routes the way `projects.routes.test.ts` does, asserts: unauthenticated request → 401 envelope; authenticated-but-not-in-org → 403 or 404 per tenancy rules (read the reference); invalid body → 422 with the zValidator error shape; a 404 on an unknown id. All assertions against `@keel/http`'s envelope shape.
   - `<name>.repository.test.ts` — asserts the repository's `and(...)` tenancy filter returns nothing for another organization's rows, and a keyset/paging probe if the module has a list endpoint (the reference has `projects.repository.paging.test.ts`; check whether the generator's repository emits a cursor — if it does, include the probe; if not, skip it with a comment).
   - If the generator's service has an async boundary worth covering beyond what `service.test.ts` already does, skip — `service.test.ts` already exists.
-- [ ] **Step 3:** Update the next-steps prompt (`:749-750`) to list the newly generated test files and the manual contract-test step (if the public surface is not mounted).
-- [ ] **Step 4:** Prove it: run the generator to a throwaway module name (`bun tools/gen-module.ts <scratch-name>` — check its CLI flags first), then run the generated tests with explicit paths (`cd apps/server && bun test src/modules/<scratch-name>/...`), then delete the throwaway module tree. Iterate until the generated tests pass green against the test DB.
-- [ ] **Step 5:** Run `bun tools/check-naming.ts` to confirm the new file names pass the convention.
-- [ ] **Step 6:** Commit: `feat(tools): gen-module scaffolds route and repository tests`.
+- [x] **Step 3:** Update the next-steps prompt (`:749-750`) to list the newly generated test files and the manual contract-test step (if the public surface is not mounted).
+- [x] **Step 4:** Prove it: run the generator to a throwaway module name (`bun tools/gen-module.ts <scratch-name>` — check its CLI flags first), then run the generated tests with explicit paths (`cd apps/server && bun test src/modules/<scratch-name>/...`), then delete the throwaway module tree. Iterate until the generated tests pass green against the test DB.
+- [x] **Step 5:** Run `bun tools/check-naming.ts` to confirm the new file names pass the convention.
+- [x] **Step 6:** Commit: `feat(tools): gen-module scaffolds route and repository tests`.
 
 ## Done when
 

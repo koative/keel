@@ -185,6 +185,161 @@ export function findById(_id: string, _organizationId: string): Promise<undefine
 export const ${camel}Store = { findById, listByOrganization };
 `,
 
+	[`${dir}/${name}.repository.test.ts`]: `import { describe, expect, it } from "bun:test";
+import { seedOrganization, skipNotice, testDbReady } from "../../../test-db";
+
+const ready = await testDbReady();
+if (!ready) {
+	process.stdout.write(skipNotice("${name}.repository"));
+}
+
+/** The row shape the implemented repository returns, as projects' does. */
+interface Row {
+	createdAt: Date;
+	createdBy: string | null;
+	id: string;
+	organizationId: string;
+}
+
+/**
+ * The scaffold's repository exports only findById and listByOrganization and
+ * throws on every call, and the module's table does not exist yet, so nothing
+ * below can run against it. \`insert\` is picked up dynamically because a static
+ * import of a member the scaffold does not export would fail to load the file;
+ * the probe turns the suite on the moment the repository is implemented (step 3
+ * of the generator's next-steps) and keeps it honest until then.
+ */
+type Repository = typeof import("./${name}.repository") & {
+	insert: (row: {
+		createdBy: string | null;
+		organizationId: string;
+	}) => Promise<Row>;
+};
+
+const repository = (await import("./${name}.repository")) as Repository;
+
+let repositoryWorks = false;
+try {
+	await repository.findById(crypto.randomUUID(), crypto.randomUUID());
+	repositoryWorks = true;
+} catch {
+	// scaffold: ${name}.repository.ts throws until it is implemented.
+}
+
+/**
+ * The published order — createdAt desc, id as the tiebreak — derived from the
+ * rows the test created rather than from a second copy of the query. Rows
+ * seeded concurrently can share a millisecond, which is exactly the case the
+ * tiebreak exists for.
+ */
+const newestFirst = (rows: Row[]) =>
+	[...rows]
+		.sort(
+			(a, b) =>
+				b.createdAt.getTime() - a.createdAt.getTime() ||
+				(a.id < b.id ? 1 : -1)
+		)
+		.map((row) => row.id);
+
+/**
+ * Integration, against real Postgres. Drizzle is not mocked: the thing under
+ * test is whether the query is correct, and the tenancy filter is the whole
+ * reason the service can answer 404 without comparing anything — a row from
+ * another organization is simply not returned.
+ */
+describe.skipIf(!ready || !repositoryWorks)("${name} repository", () => {
+	it("hides a row belonging to another organization", async () => {
+		const [organizationId, otherOrganization] = await Promise.all([
+			seedOrganization(),
+			seedOrganization(),
+		]);
+		const created = await repository.insert({
+			createdBy: null,
+			organizationId,
+		});
+
+		expect(
+			await repository.findById(created.id, otherOrganization)
+		).toBeUndefined();
+	});
+
+	it("lists only the asking organization's rows, newest first", async () => {
+		const [mine, theirs] = await Promise.all([
+			seedOrganization(),
+			seedOrganization(),
+		]);
+		const created = await Promise.all([
+			repository.insert({ createdBy: null, organizationId: mine }),
+			repository.insert({ createdBy: null, organizationId: mine }),
+			repository.insert({ createdBy: null, organizationId: theirs }),
+		]);
+		const expected = newestFirst(
+			created.filter((row) => row.organizationId === mine)
+		);
+
+		const rows = await repository.listByOrganization(mine, {
+			cursor: null,
+			limit: 25,
+		});
+
+		expect(rows.map((row) => row.id)).toEqual(expected);
+	});
+
+	// The probe row is what tells the service another page exists, so the query
+	// must overshoot by exactly one and never by more.
+	it("fetches one row beyond the limit, and stops there", async () => {
+		const organizationId = await seedOrganization();
+		await Promise.all(
+			Array.from({ length: 3 }, () =>
+				repository.insert({ createdBy: null, organizationId })
+			)
+		);
+
+		const rows = await repository.listByOrganization(organizationId, {
+			cursor: null,
+			limit: 2,
+		});
+
+		expect(rows).toHaveLength(3);
+	});
+
+	/**
+	 * The property that matters: walking the cursor two rows at a time must
+	 * reproduce the published order exactly — no row twice, none skipped — while
+	 * a second organization's rows sit in the same table and stay invisible
+	 * throughout.
+	 */
+	it("pages through every row exactly once", async () => {
+		const organizationId = await seedOrganization();
+		const created = await Promise.all(
+			Array.from({ length: 3 }, () =>
+				repository.insert({ createdBy: null, organizationId })
+			)
+		);
+		const expected = newestFirst(created);
+
+		const walk = async (
+			cursor: { createdAt: Date; id: string } | null,
+			seen: string[]
+		): Promise<string[]> => {
+			const rows = await repository.listByOrganization(organizationId, {
+				cursor,
+				limit: 2,
+			});
+			const items = rows.slice(0, 2);
+			const ids = [...seen, ...items.map((item) => item.id)];
+			const last = items.at(-1);
+
+			return rows.length > 2 && last
+				? await walk({ createdAt: last.createdAt, id: last.id }, ids)
+				: ids;
+		};
+
+		expect(await walk(null, [])).toEqual(expected);
+	});
+});
+`,
+
 	[`${dir}/${name}.fixtures.ts`]: `import type { LogPort } from "@/lib/log";
 import type { ${singular}, ${singular}Store } from "./${name}.service";
 
@@ -433,6 +588,115 @@ export const internal${pascal}Routes = new Hono<AppEnv>()
 	.use(requireOrg)
 	.get("/", zValidator("query", ${camel}PageSchema, rejectInvalid), list)
 	.get("/:id", zValidator("param", ${camel}IdSchema, rejectInvalid), get);
+`,
+
+	[`${dir}/internal/${name}.routes.test.ts`]: `import { beforeAll, describe, expect, it } from "bun:test";
+import { app } from "@/app";
+import { skipNotice, testDbReady } from "../../../../test-db";
+import {
+	createClient,
+	type ErrorEnvelope,
+	signUp,
+	signUpWithoutOrganization,
+} from "../../../../test-http";
+import { findById } from "../${name}.repository";
+
+const ready = await testDbReady();
+if (!ready) {
+	process.stdout.write(skipNotice("${name} internal routes"));
+}
+
+const api = createClient();
+
+// The scaffold's repository throws on every call, so a request that reaches it
+// would 500 instead of 404 — the exact failure these tests exist to catch once
+// the module is implemented. Probe once; the repository-dependent case below
+// goes live on its own the moment step 3 of the generator's next-steps is done.
+let repositoryWorks = false;
+try {
+	await findById(crypto.randomUUID(), crypto.randomUUID());
+	repositoryWorks = true;
+} catch {
+	// scaffold: ${name}.repository.ts throws until it is implemented.
+}
+
+/**
+ * End to end through the real stack — CORS, wide event, auth guard, validator,
+ * handler, service, repository, Postgres — driven by \`app.request()\` with no
+ * socket. The session comes from Better Auth's own sign-up flow.
+ *
+ * The 404 and tenancy rules mirror projects.routes.tenancy.test.ts; the
+ * cross-tenant case needs rows in the module's table, so it lives in
+ * ${name}.repository.test.ts until the module has one.
+ */
+describe.skipIf(!ready)("internal ${name} routes", () => {
+	beforeAll(async () => {
+		api.cookie = await signUp();
+	});
+
+	it("rejects an anonymous request with the shared envelope", async () => {
+		const response = await app.request("/api/${name}");
+		const body = await api.body<ErrorEnvelope>(response);
+
+		expect(response.status).toBe(401);
+		expect(body.error).toMatchObject({
+			code: "UNAUTHORIZED",
+			message: "Authentication required",
+		});
+		expect(body.error.requestId).toBeString();
+	});
+
+	// The other half of the guard's failure modes: authenticated but not yet in
+	// an organization is a 403, so the SPA can route to onboarding instead of
+	// showing an empty list or bouncing the user back to sign-in.
+	it("refuses a member with no active organization with a 403", async () => {
+		const onboarding = createClient();
+		onboarding.cookie = await signUpWithoutOrganization();
+
+		const response = await onboarding.request("/api/${name}");
+
+		expect(response.status).toBe(403);
+		expect((await api.body<ErrorEnvelope>(response)).error.code).toBe(
+			"FORBIDDEN"
+		);
+	});
+
+	// Validated by zValidator, not the handler: each of these would be a 500 if
+	// the query or the id were decoded downstream. The scaffold serves them all
+	// without touching the repository, so they are live from the first commit.
+	it("rejects a malformed id before it reaches the repository", async () => {
+		const response = await api.request("/api/${name}/not-a-uuid");
+		const body = await api.body<ErrorEnvelope>(response);
+
+		expect(response.status).toBe(422);
+		expect(body.error.code).toBe("UNPROCESSABLE_ENTITY");
+		expect(body.error.why).toContain("id");
+	});
+
+	it.each(["limit=0", "limit=101", "limit=abc", "cursor=%20not-a-cursor"])(
+		"rejects ?%s as a 422, never a 500",
+		async (query) => {
+			expect((await api.request(\`/api/${name}?\${query}\`)).status).toBe(422);
+		}
+	);
+
+	// 404 and not 403: a 403 would confirm the id exists, which is enough to walk
+	// another organization's ids one guess at a time. Absent and another's arrive
+	// as the same undefined, so this one case pins the distinction the service
+	// comment draws.
+	it.skipIf(!repositoryWorks)(
+		"reports an unknown id as a 404, never a 403",
+		async () => {
+			const response = await api.request(
+				\`/api/${name}/\${crypto.randomUUID()}\`
+			);
+			const body = await api.body<ErrorEnvelope>(response);
+
+			expect(response.status).toBe(404);
+			expect(body.error.code).toBe("NOT_FOUND");
+		}
+	);
+});
 `,
 
 	[`${dir}/public/${name}.v1.schema.ts`]: `import { z } from "zod";
@@ -738,6 +1002,17 @@ Next, in this order:
   3. replace the throwing bodies in ${name}.repository.ts, filtering every
      statement on organizationId in the same and(...) as the id
   4. bun run check
+
+The generated tests cover the wiring from the first commit:
+  - internal/${name}.routes.test.ts locks the 401/403/422 envelope cases the
+    scaffold can already serve, and the 404 on an unknown id
+  - ${name}.repository.test.ts carries the tenancy filter and keyset paging cases
+
+The repository-dependent ones (the 404, and the whole repository suite) probe
+for a working repository and self-enable the moment step 3 is done — no edits
+needed, and nothing to forget. The cross-tenant 404 case needs rows in the
+module's table; it is noted in the routes test and pinned by the repository
+suite instead.
 
 The generated repository throws on purpose: a half-finished module must not look
 like a working one.
