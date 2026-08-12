@@ -46,11 +46,11 @@
 
 **Files:** `packages/db/src/schema/idempotency.ts`, migration 0006
 
-- [ ] **Step 1:** Read the current schema and migration 0000/0001 to see how `idempotency_key` is defined and whether any migration can have left rows in it (if the table is only written by this middleware, and this middleware is v1-projects-only, pre-existing rows are possible in a deployed DB — decide nullable-then-backfill vs NOT NULL from birth based on that, and say which in the migration comment).
-- [ ] **Step 2:** Add `organizationId: text not null` (or nullable + backfill + `set not null` if pre-existing rows exist) with a FK to organization (match the project table's FK style, ON DELETE cascade), and change the unique index to `(actorId, organizationId, key)` (drop the old one).
-- [ ] **Step 3:** Generate the migration with `drizzle-kit generate` (check how the repo runs it: `cd packages/db && bunx drizzle-kit generate --name idempotency_organization` or the package script), format the resulting meta files like the repo's committed ones (see plan 024's post-landing fix: drizzle-kit emits verbose JSON; the repo's snapshots are formatter-compact — run the formatter on the generated meta or match the existing files' shape), and run `bun run db:test:migrate`.
-- [ ] **Step 4:** `bun tools/check-migrations.ts` green.
-- [ ] **Step 5:** Commit: `feat(db): idempotency keys are scoped to the active organization`.
+- [x] **Step 1:** Read the current schema and migration 0000/0001 to see how `idempotency_key` is defined and whether any migration can have left rows in it (if the table is only written by this middleware, and this middleware is v1-projects-only, pre-existing rows are possible in a deployed DB — decide nullable-then-backfill vs NOT NULL from birth based on that, and say which in the migration comment).
+- [x] **Step 2:** Add `organizationId: text not null` (or nullable + backfill + `set not null` if pre-existing rows exist) with a FK to organization (match the project table's FK style, ON DELETE cascade), and change the unique index to `(actorId, organizationId, key)` (drop the old one).
+- [x] **Step 3:** Generate the migration with `drizzle-kit generate` (check how the repo runs it: `cd packages/db && bunx drizzle-kit generate --name idempotency_organization` or the package script), format the resulting meta files like the repo's committed ones (see plan 024's post-landing fix: drizzle-kit emits verbose JSON; the repo's snapshots are formatter-compact — run the formatter on the generated meta or match the existing files' shape), and run `bun run db:test:migrate`.
+- [x] **Step 4:** `bun tools/check-migrations.ts` green.
+- [x] **Step 5:** Commit: `feat(db): idempotency keys are scoped to the active organization`.
 
 ### Task 2: Claim-first, and the org-scoped replay
 

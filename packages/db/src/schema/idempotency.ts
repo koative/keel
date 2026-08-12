@@ -8,6 +8,7 @@ import {
 	uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
+import { organization } from "./organization";
 
 /**
  * The reply a request already produced, keyed by the client's `Idempotency-Key`.
@@ -33,17 +34,30 @@ export const idempotencyKey = pgTable(
 			.$defaultFn(() => crypto.randomUUID()),
 		key: text("key").notNull(),
 		method: text("method").notNull(),
+		// The tenant the reply was produced for. `requireOrg` runs before the
+		// middleware in the route chain, so a row is always attributable: a
+		// retry after an organization switch must not replay the old tenant's
+		// reply, and scoping the key space by tenant is what guarantees it.
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
 		path: text("path").notNull(),
 		requestHash: text("request_hash").notNull(),
 		response: jsonb("response").$type<{ body: string }>().notNull(),
 		status: integer("status").notNull(),
 	},
 	(table) => [
-		// Scoped to the actor, never global: a global key space would let one
-		// tenant replay another's reply by guessing a key, and would collide two
-		// clients that both number their keys from one. This is the constraint
-		// @keel/db/errors translates to a 409.
-		uniqueIndex("idempotency_key_actor_key_idx").on(table.actorId, table.key),
+		// Scoped to the actor and their active organization, never global: a
+		// global key space would let one tenant replay another's reply by
+		// guessing a key, and would collide two clients that both number their
+		// keys from one. The organization half of the scope is what makes a
+		// retry after a tenant switch a fresh key space instead of a wrong
+		// replay. This is the constraint @keel/db/errors translates to a 409.
+		uniqueIndex("idempotency_key_actor_organization_key_idx").on(
+			table.actorId,
+			table.organizationId,
+			table.key
+		),
 		index("idempotency_key_expiresAt_idx").on(table.expiresAt),
 	]
 );
