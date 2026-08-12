@@ -32,8 +32,8 @@
 
 **Files:** `packages/api-client/src/index.ts`
 
-- [ ] **Step 1:** Read the whole file (it is small) to see the `CreateApiClientOptions` type and how `hc` is called.
-- [ ] **Step 2:** Replace the spread so the caller's own `init` is preserved but the cookie setting is non-negotiable:
+- [x] **Step 1:** Read the whole file (it is small) to see the `CreateApiClientOptions` type and how `hc` is called.
+- [x] **Step 2:** Replace the spread so the caller's own `init` is preserved but the cookie setting is non-negotiable:
   ```ts
   return hc<AppType>(baseUrl, {
     ...options,
@@ -41,9 +41,9 @@
   });
   ```
   (If the options type currently exposes `headers` rather than `init`, check how `hc` accepts them — hono's `hc` init accepts `headers` inside `init`; extend the options type with `init?: RequestInit` or merge `options.headers` into the same object as appropriate, keeping the existing `headers` path working for current callers.)
-- [ ] **Step 3:** If the options type gains an `init` field, add a doc comment on it: caller-supplied init is merged under `credentials: "include"`, which is load-bearing for session auth and cannot be overridden.
-- [ ] **Step 4:** Typecheck the package and its consumer: `cd packages/api-client && bun run check-types` (or the package's typecheck script) and `cd apps/web && bun run check-types`.
-- [ ] **Step 5:** Commit: `fix(api-client): a caller init cannot drop the session cookie`.
+- [x] **Step 3:** If the options type gains an `init` field, add a doc comment on it: caller-supplied init is merged under `credentials: "include"`, which is load-bearing for session auth and cannot be overridden.
+- [x] **Step 4:** Typecheck the package and its consumer: `cd packages/api-client && bun run check-types` (or the package's typecheck script) and `cd apps/web && bun run check-types`.
+- [x] **Step 5:** Commit: `fix(api-client): a caller init cannot drop the session cookie`.
 
 ## Done when
 

@@ -18,12 +18,20 @@ import type { AppType } from "server/app-type";
  */
 export function createApiClient(
 	baseUrl: string,
-	options?: { headers?: Record<string, string> }
+	options?: {
+		headers?: Record<string, string>;
+		/**
+		 * Caller-supplied init is merged under `credentials: "include"`, which is
+		 * load-bearing for session auth and cannot be overridden.
+		 */
+		init?: RequestInit;
+	}
 ) {
 	return hc<AppType>(baseUrl, {
 		// The session lives in a cookie that Better Auth sets, so every call has to
-		// carry it cross-origin.
-		init: { credentials: "include" },
+		// carry it cross-origin. The spread order puts the caller's init under
+		// credentials, so it can never drop the cookie.
 		...options,
+		init: { credentials: "include", ...options?.init },
 	});
 }
