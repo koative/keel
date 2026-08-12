@@ -74,15 +74,6 @@ async function rowFor(id: string) {
 	return found;
 }
 
-async function enqueueStaged(dedupeKey: string): Promise<string> {
-	const { id } = await enqueue({ dedupeKey, kind: "test.echo", payload: {} });
-	if (id === null) {
-		throw new Error("expected the replacement job to be enqueued");
-	}
-	staged.push(id);
-	return id;
-}
-
 describe.skipIf(!ready)("stranded job reaper", () => {
 	it("puts a job back on the queue when its worker never came back", async () => {
 		const id = await strand({ lockedAt: hoursAgo(2) });
@@ -156,62 +147,44 @@ describe.skipIf(!ready)("stranded job reaper", () => {
 	});
 
 	/**
-	 * The trap. The partial index covers `pending` only, so the stranded row left
-	 * it when it was claimed and a replacement was accepted behind it. Requeueing
-	 * the stranded row naively would put a second `pending` entry with the same
-	 * key into a unique index and abort the whole statement.
+	 * The reconciled invariant: the dedupe key stays with the work from enqueue
+	 * to settle. A claimed row holds its key through `running`
+	 * (`job_dedupeKey_unsettled_idx` covers both unsettled statuses), so a
+	 * reclaim must not drop it — a retry is the same work, and a retry that
+	 * released its key would let a fresh enqueue of the same key run beside it,
+	 * which is exactly the duplicate window the widened index exists to close.
+	 * `fail` keeps the key for the same reason (`jobs.dedupe.test.ts`).
 	 */
-	it("collapses a stranded job whose dedupe key a newer pending job holds", async () => {
-		const dedupeKey = crypto.randomUUID();
-		const stranded = await strand({ dedupeKey, lockedAt: hoursAgo(2) });
-		const replacement = await enqueueStaged(dedupeKey);
-
-		await reclaimStrandedJobs(STALE_AFTER_MS);
-
-		const abandoned = await rowFor(stranded);
-		expect(abandoned?.status).toBe("failed");
-		expect(abandoned?.lastError).toContain("dedupe key");
-		// Kept on the settled row: it is out of the partial index anyway, and it
-		// is how someone reading the table finds the row that took over.
-		expect(abandoned?.dedupeKey).toBe(dedupeKey);
-
-		// The row that will actually do the work is untouched.
-		const kept = await rowFor(replacement);
-		expect(kept?.status).toBe("pending");
-		expect(kept?.attempts).toBe(0);
-	});
-
-	// Two workers can both hold a `running` row for one key, because the second
-	// enqueue was accepted while the first was in flight. One statement must not
-	// requeue both.
-	it("requeues the older of two stranded jobs sharing a key and collapses the other", async () => {
-		const dedupeKey = crypto.randomUUID();
-		const older = await strand({ dedupeKey, lockedAt: hoursAgo(3) });
-		const newer = await strand({ dedupeKey, lockedAt: hoursAgo(2) });
-
-		await reclaimStrandedJobs(STALE_AFTER_MS);
-
-		expect((await rowFor(older))?.status).toBe("pending");
-
-		const collapsed = await rowFor(newer);
-		expect(collapsed?.status).toBe("failed");
-		expect(collapsed?.lastError).toContain("dedupe key");
-	});
-
-	/**
-	 * The reason the requeue can never raise 23505, even against an `enqueue`
-	 * committed a microsecond after the reaper read the table: the row it writes
-	 * back to `pending` carries no key, so it creates no index entry at all.
-	 */
-	it("releases the dedupe key of the job it requeues", async () => {
+	it("requeues a reclaimed job with its dedupe key still held", async () => {
 		const dedupeKey = crypto.randomUUID();
 		const id = await strand({ dedupeKey, lockedAt: hoursAgo(2) });
 
 		await reclaimStrandedJobs(STALE_AFTER_MS);
 
-		expect((await rowFor(id))?.dedupeKey).toBeNull();
-		// And the key is therefore free, which is what it already was for the two
-		// hours this row spent stranded.
-		await enqueueStaged(dedupeKey);
+		const row = await rowFor(id);
+		expect(row?.status).toBe("pending");
+		expect(row?.dedupeKey).toBe(dedupeKey);
+
+		// The key is not free while the retry waits: an enqueue of the same work
+		// collapses into the retry instead of starting a second execution.
+		const again = await enqueue({ dedupeKey, kind: "test.echo", payload: {} });
+		expect(again.created).toBe(false);
+		expect(again.id).toBeNull();
+	});
+
+	// Before plan 024 widened the dedupe index to cover `running`, a claimed row
+	// left the index and a replacement enqueue was accepted behind it, so the
+	// reaper had to notice a newer pending row holding the stranded row's key
+	// and settle the stranded one `failed`. The index now holds the key through
+	// `running`, so that state cannot be constructed — the second enqueue
+	// collapses at insert time (`jobs.dedupe.test.ts` proves it) — and the
+	// reaper needs no collapse branch. A two-stranded-share-one-key staging
+	// insert now raises 23505 before the reaper ever sees the rows, which is the
+	// invariant itself.
+	it("cannot be presented with two unsettled rows sharing a dedupe key", async () => {
+		const dedupeKey = crypto.randomUUID();
+		await strand({ dedupeKey, lockedAt: hoursAgo(3) });
+
+		await expect(strand({ dedupeKey, lockedAt: hoursAgo(2) })).rejects.toThrow();
 	});
 });

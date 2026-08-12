@@ -733,10 +733,9 @@ dead worker named in last_error, and the process still exits immediately."
 - A row in `status = 'running'` whose `locked_at` is older than `WORKER_BATCH_SIZE × 120s + 5min` is back in `pending`, claimable by any worker, with `locked_at` and `locked_by` null, one more attempt spent, and the dead worker's id readable in `last_error`.
 - A row whose lock is younger than that threshold is untouched, including its `attempts`.
 - A reclaimed row keeps its `id`, so `ai_usage.job_id` and the `mail.send` provider idempotency key still suppress a repeat side effect.
-- A stranded row whose `dedupe_key` a newer `pending` row holds ends `failed` with the reason on it, the newer row is untouched, and the statement does not raise `23505`. Two stranded rows sharing a key produce exactly one requeue.
-- A requeued row carries no `dedupe_key`, so the key is enqueueable again immediately.
+- **Reconciled with plan 024 (landed after this plan):** the dedupe index now covers `running` as well as `pending`, so a claimed row holds its key through the whole in-flight window. A stranded row can no longer share a key with a `pending` replacement — the state this plan's collapse branch defended cannot be constructed — so the reaper requeues every stranded row and **keeps the key on the requeued row**, holding it until the retry settles, exactly as `fail` does. The collapse branch and the `collapsed` report count were removed; the reaper suite proves a reclaimed row's key stays held and that two unsettled rows sharing a key cannot be staged.
 - A stranded row on its last attempt ends `failed`, not `pending`.
-- `bun src/tasks.ts` reports the three reaper counts on its existing line and still exits without waiting out the pool's idle timeout.
+- `bun src/tasks.ts` reports the two reaper counts (requeued, exhausted) on its existing line and still exits without waiting out the pool's idle timeout.
 - `bun run check` passes, with no new migration and no new environment variable.
 
 ## Out of scope

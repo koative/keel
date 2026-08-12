@@ -117,7 +117,7 @@ const settledJobs = await sweepSettledJobs(
 const strandedJobs = await reclaimStrandedJobs(STRANDED_JOB_TIMEOUT_MS);
 
 process.stdout.write(
-	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s), ${settledJobs} settled job(s); requeued ${strandedJobs.requeued} stranded job(s), collapsed ${strandedJobs.collapsed}, exhausted ${strandedJobs.exhausted}\n`
+	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s), ${settledJobs} settled job(s); requeued ${strandedJobs.requeued} stranded job(s), exhausted ${strandedJobs.exhausted}\n`
 );
 
 // The pool holds an idle client for `idleTimeoutMillis`, and its timer keeps the
