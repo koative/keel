@@ -53,9 +53,9 @@
 
 **Files:** `AGENTS.md:49-51`
 
-- [ ] **Step 1:** Read the current sentence and the surrounding Background-work section so the replacement reads naturally in context.
-- [ ] **Step 2:** Apply plan 022's handover clause as a within-line edit, keeping the file at 82 lines (verify with `wc -l` after).
-- [ ] **Step 3:** Commit: `docs(agents): webhook receivers now have a replay window and an event id`.
+- [x] **Step 1:** Read the current sentence and the surrounding Background-work section so the replacement reads naturally in context.
+- [x] **Step 2:** Apply plan 022's handover clause as a within-line edit, keeping the file at 82 lines (verify with `wc -l` after).
+- [x] **Step 3:** Commit: `docs(agents): webhook receivers now have a replay window and an event id`.
 
 ## Done when
 

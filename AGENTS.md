@@ -44,11 +44,11 @@ A service never checks tenancy; it has no field to compare.
 
 Anything that can outlive a request goes in the `job` table and runs in
 `dist/worker.mjs`, never in a `setInterval` inside the API — a timer runs once per
-replica. `enqueue` from `@/lib/jobs` is the only way in — `jobs.repository` is
-private to that module — and takes a `dedupeKey` to collapse duplicate in-flight
-work. Webhook receivers verify over `await c.req.arrayBuffer()`, persist,
-enqueue, return 200; a re-stringified body produces a different digest and
-rejects every event.
+replica. `enqueue` from `@/lib/jobs` is the only way in — `jobs.repository` is private
+to that module — and takes a `dedupeKey` to collapse duplicate in-flight work. Webhook
+receivers verify over `await c.req.arrayBuffer()`, refuse a delivery stamped more than
+five minutes from now, persist, enqueue under the provider's event id, return 200; a
+re-stringified body produces a different digest and rejects every event.
 
 Mail is queued work, never inline: a hook calls `enqueueMail` and the worker sends,
 so a slow provider cannot slow sign-up and a failed send is retried instead of lost.
