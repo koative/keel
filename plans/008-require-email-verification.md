@@ -47,9 +47,9 @@
 
 **Files:** `apps/web/src/components/sign-in-form.tsx`
 
-- [ ] **Step 1:** In `onError`, before the generic toast, branch on Better Auth's not-verified status (use the exact constant from Task 1 Step 2 — e.g. `error.error.status === "EMAIL_NOT_VERIFIED"`) and show a message that tells the user to check their inbox for the verification mail, rather than the generic failure.
-- [ ] **Step 2:** Build the web app to prove it compiles: `cd apps/web && bun run build`.
-- [ ] **Step 3:** Commit: `feat(web): tell the user the address is unverified, not that the password was wrong`.
+- [x] **Step 1:** In `onError`, before the generic toast, branch on Better Auth's not-verified status (use the exact constant from Task 1 Step 2 — e.g. `error.error.status === "EMAIL_NOT_VERIFIED"`) and show a message that tells the user to check their inbox for the verification mail, rather than the generic failure.
+- [x] **Step 2:** Build the web app to prove it compiles: `cd apps/web && bun run build`.
+- [x] **Step 3:** Commit: `feat(web): tell the user the address is unverified, not that the password was wrong`.
 
 ## Done when
 

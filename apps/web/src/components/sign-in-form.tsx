@@ -35,6 +35,16 @@ export default function SignInForm({
 				},
 				{
 					onError: (error) => {
+						// The password was right — the address was never proven. Say so
+						// instead of the generic failure: the user's next step is the
+						// inbox, not the password field. Better Auth returns this code
+						// only when `requireEmailVerification` refused the sign-in.
+						if (error.error.code === "EMAIL_NOT_VERIFIED") {
+							toast.error(
+								"Your email address has not been verified yet — check your inbox for the verification mail"
+							);
+							return;
+						}
 						toast.error(error.error.message || error.error.statusText);
 					},
 					onSuccess: () => {
