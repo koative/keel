@@ -46,8 +46,8 @@
 
 **Files:** `README.md:383-384`
 
-- [ ] **Step 1:** Decide the honest claim. AGENTS.md is 82 lines. Either say "It stays short and deliberately repeats nothing the linter already enforces" (drops the number), or state a true bound. Prefer dropping the number — a line-count promise without an enforced gate is exactly the class of stale claim this finding is about.
-- [ ] **Step 2:** Commit: `docs(readme): the AGENTS.md length promise was already false`.
+- [x] **Step 1:** Decide the honest claim. AGENTS.md is 82 lines. Either say "It stays short and deliberately repeats nothing the linter already enforces" (drops the number), or state a true bound. Prefer dropping the number — a line-count promise without an enforced gate is exactly the class of stale claim this finding is about.
+- [x] **Step 2:** Commit: `docs(readme): the AGENTS.md length promise was already false`.
 
 ### Task 3: The webhook sentence, made true
 
