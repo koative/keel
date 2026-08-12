@@ -88,6 +88,26 @@ export const EXPECTATIONS: Expectation[] = [
 		why: "an HTTP layer reaches past the queue's public face",
 	},
 	{
+		// The nine noRestrictedImports fixtures above all end in .service.ts or
+		// .handlers.ts, so every one of them lands in a different override block.
+		// These two are the only files that reach the block scoped to everything
+		// in a module that is NOT a service, an HTTP layer or a test — the block
+		// that polices *.repository.ts, *.schema.ts and *.fixtures.ts, which is
+		// to say the files that touch the database and the wire format.
+		path: `${MODULE_DIR}/rulecheck.repository.ts`,
+		rule: "lint/style/noRestrictedImports",
+		source:
+			'import { projectStore } from "@/modules/projects/projects.repository";\nexport const store = projectStore;\n',
+		why: "a repository reaches into another module's internals",
+	},
+	{
+		path: `${MODULE_DIR}/internal/escape.schema.ts`,
+		rule: "lint/style/noRestrictedImports",
+		source:
+			'import { projectStore } from "../../projects/projects.repository";\nexport const store = projectStore;\n',
+		why: "a schema escapes its module directory relatively",
+	},
+	{
 		// The three module-scoped overrides cannot match a file outside
 		// src/modules/, so shared code needs its own block or it is unpoliced.
 		path: `${LIB_DIR}/reach.ts`,
