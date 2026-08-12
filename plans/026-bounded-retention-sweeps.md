@@ -11,6 +11,8 @@
 
 **Tech Stack:** Bun, Drizzle ORM 0.45.2 (`node-postgres` driver), drizzle-kit 0.31.10, pg 8.22 / `@types/pg` 8.21, PostgreSQL 18, better-auth 1.6.25, bun:test.
 
+> **Implementation note (executed on main at `9fdb492`):** this plan's migration was written when `0004_ai_usage.sql` was head. Since then plans 013 and 025 landed `0006_idempotency_organization.sql` and `0007_webhook_event.sql`, so the generated migration is **`0008_sweep_indexes.sql`** — same two `CREATE INDEX` statements, next ordinal. The plan text below still says `0005`; read every `0005_sweep_indexes` mention as `0008_sweep_indexes`. All other drift vs. the audited commit: plan 017 renamed the partial dedupe index to `job_dedupeKey_unsettled_idx` (the plan's evidence quotes `job_dedupeKey_pending_idx`), and plan 011/016 moved `sweepSettledJobs` to `apps/server/src/lib/jobs.repository.ts:248-256` with `markUnsettled`/`reclaimStrandedJobs` added above and below it; plan 025 added the `reclaimStrandedJobs` call and its `STRANDED_JOB_TIMEOUT_MS` block to `tasks.ts`.
+
 ---
 
 ## Verified evidence (do not re-litigate)
@@ -151,7 +153,7 @@ Highest leverage in this plan, and the smallest diff. Batching without an index 
 - Consumes: nothing.
 - Produces: the indexes `job_status_updatedAt_idx` on `job (status, updated_at)` and `rate_limit_lastRequest_idx` on `rate_limit (last_request)`. Tasks 2 and 3 depend on them only for performance, not for correctness.
 
-- [ ] **Step 1: Start the test database and record what indexes exist today**
+- [x] **Step 1: Start the test database and record what indexes exist today**
 
 ```bash
 bun run db:test:start && bun run db:test:migrate
@@ -160,7 +162,7 @@ docker exec keel-postgres-test psql -U postgres -d keel_test -c "select tablenam
 
 Expected, before any change — five rows: `job_dedupeKey_pending_idx`, `job_pkey`, `job_status_runAt_idx`, `rate_limit_key_unique`, `rate_limit_pkey`. Nothing covering `job.updated_at` or `rate_limit.last_request`.
 
-- [ ] **Step 2: Watch the planner fail to narrow on the filter column**
+- [x] **Step 2: Watch the planner fail to narrow on the filter column**
 
 ```bash
 docker exec keel-postgres-test psql -U postgres -d keel_test -c "set enable_seqscan = off; explain (costs off) delete from job where status in ('done','failed') and updated_at < now() - interval '3 days';"
@@ -172,7 +174,7 @@ docker exec keel-postgres-test psql -U postgres -d keel_test -c "set enable_seqs
 Expected for `job`: either `Seq Scan on job` or `Index Scan using job_status_runAt_idx` — and in the second case `updated_at` appears under `Filter:`, never under `Index Cond:`. Either way the date is checked row by row after the fact.
 Expected for `rate_limit`: `Seq Scan on rate_limit` with `Filter: (last_request < 1000)`. Neither the primary key nor the unique key on `key` can serve this predicate.
 
-- [ ] **Step 3: Add the job index to the schema**
+- [x] **Step 3: Add the job index to the schema**
 
 In `packages/db/src/schema/job.ts`, insert this into the extras array immediately after `index("job_status_runAt_idx")…` at line 58, before the `uniqueIndex` comment block:
 
@@ -193,7 +195,7 @@ In `packages/db/src/schema/job.ts`, insert this into the extras array immediatel
 
 `index` is already imported at line 4. No other change to this file.
 
-- [ ] **Step 4: Add the rate-limit index to the schema**
+- [x] **Step 4: Add the rate-limit index to the schema**
 
 In `packages/db/src/schema/auth.ts`, replace the table declaration at lines 116-121 — the one-argument `pgTable` becomes the three-argument form:
 
@@ -224,7 +226,7 @@ export const rateLimit = pgTable(
 
 Leave the doc comment at lines 108-115 as it is: "Better Auth prunes expired rows itself" is true at 1.6.25. `index`, `integer`, `text` and `bigint` are all already imported at lines 2-10.
 
-- [ ] **Step 5: Generate the migration**
+- [x] **Step 5: Generate the migration**
 
 ```bash
 cd packages/db && bun run db:generate --name sweep_indexes
@@ -234,7 +236,7 @@ Run it from `packages/db`, which is where `drizzle.config.ts` lives and how `too
 
 Expected: `packages/db/src/migrations/0005_sweep_indexes.sql` is created, `meta/_journal.json` gains an entry with `"tag": "0005_sweep_indexes"`, and `meta/0005_snapshot.json` appears.
 
-- [ ] **Step 6: Read the emitted SQL before trusting it**
+- [x] **Step 6: Read the emitted SQL before trusting it**
 
 ```bash
 cat packages/db/src/migrations/0005_sweep_indexes.sql
@@ -249,7 +251,7 @@ CREATE INDEX "rate_limit_lastRequest_idx" ON "rate_limit" USING btree ("last_req
 
 If the file contains anything else — an `ALTER TABLE`, a dropped index, a column change — stop. Something other than these two indexes has drifted, and it does not belong in this commit.
 
-- [ ] **Step 7: Apply it and prove the planner now narrows on the filter column**
+- [x] **Step 7: Apply it and prove the planner now narrows on the filter column**
 
 ```bash
 bun run db:test:migrate
@@ -262,7 +264,7 @@ Expected for `rate_limit`: the plan names `rate_limit_lastRequest_idx` with `Ind
 
 That transition — `updated_at` and `last_request` moving out of `Filter` and into `Index Cond` — is this task's acceptance criterion.
 
-- [ ] **Step 8: Prove the whole gate is green**
+- [x] **Step 8: Prove the whole gate is green**
 
 ```bash
 bun run check

@@ -113,12 +113,28 @@ export const verification = pgTable(
  * `count` a plain integer, `lastRequest` an epoch in milliseconds, which is why
  * it is a bigint and not a timestamp. Better Auth prunes expired rows itself.
  */
-export const rateLimit = pgTable("rate_limit", {
-	count: integer("count").notNull(),
-	id: text("id").primaryKey(),
-	key: text("key").notNull().unique(),
-	lastRequest: bigint("last_request", { mode: "number" }).notNull(),
-});
+export const rateLimit = pgTable(
+	"rate_limit",
+	{
+		count: integer("count").notNull(),
+		id: text("id").primaryKey(),
+		key: text("key").notNull().unique(),
+		lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		// Two pruners filter on this column and nothing else: the retention sweep
+		// in apps/server/src/tasks.ts, and Better Auth's own `deleteExpiredRows`,
+		// which it fires in the background of any request whose window has just
+		// rolled over. Unindexed, that second one is a sequential scan over every
+		// counter ever created, charged to the auth request path.
+		//
+		// Indexing a table this application does not own is safe and already the
+		// practice here — see session_userId_idx and account_userId_idx above.
+		// The adapter maps fields; it never looks at indexes. Columns are the
+		// part that must keep mirroring `getAuthTables`.
+		index("rate_limit_lastRequest_idx").on(table.lastRequest),
+	]
+);
 
 export const userRelations = relations(user, ({ many }) => ({
 	accounts: many(account),

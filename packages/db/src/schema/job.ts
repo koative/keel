@@ -56,6 +56,18 @@ export const job = pgTable(
 		// ordered by run_at. Without it every poll — once a second, per worker —
 		// is a sequential scan over the whole history of completed jobs.
 		index("job_status_runAt_idx").on(table.status, table.runAt),
+		// The retention sweep's exact shape: `status in ('done','failed') AND
+		// updated_at < cutoff`. Without it the sweep scans every job the system
+		// has ever run — which is precisely the population it exists to stop
+		// growing, so the scan gets more expensive exactly as the sweep gets
+		// more necessary.
+		//
+		// Composite rather than a partial index on `updated_at`, because the
+		// sweep binds its status list as parameters (`status in ($1, $2)`) and
+		// Postgres cannot prove a parameterised list implies a literal partial
+		// predicate. A partial index would be created, look correct, and never
+		// be chosen.
+		index("job_status_updatedAt_idx").on(table.status, table.updatedAt),
 		// Partial on purpose, and this is the load-bearing part of the design.
 		//
 		// Restricted to the two unsettled statuses, the index makes a second
