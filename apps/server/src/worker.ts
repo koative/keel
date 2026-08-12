@@ -97,14 +97,16 @@ registry.set("ai.generate", async (payload, jobId) => {
 		outputTokens: generation.usage.outputTokens,
 	});
 
-	// The completion is written out and then dropped, because a starter has
-	// nowhere honest to put it: what a generated answer belongs to is a domain
-	// question, and inventing a table for a resource that does not exist yet is
-	// the abstraction this repo is against. This line is the seam — replace it
-	// with the write that stores the answer against whatever asked for it.
-	process.stdout.write(
-		`[ai.generate] ${jobId} ${generation.model} in=${generation.usage.inputTokens} out=${generation.usage.outputTokens}\n${generation.text}\n`
-	);
+	// The seam stays a seam, but stdout is the wrong sink for user data: in
+	// production this lands in container logs, aggregated and readable far
+	// beyond the database. Development keeps the echo — capped, because the
+	// completion is unbounded — and production records only the durable
+	// summary the usage ledger already holds.
+	if (env.NODE_ENV !== "production") {
+		process.stdout.write(
+			`[ai.generate] ${jobId} ${generation.model} in=${generation.usage.inputTokens} out=${generation.usage.outputTokens}\n${generation.text.slice(0, 4000)}\n`
+		);
+	}
 });
 
 /**

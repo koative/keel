@@ -37,7 +37,7 @@
 
 **Files:** `apps/server/src/worker.ts`
 
-- [ ] **Step 1:** Replace the unconditional `process.stdout.write` with one gated on the environment (the worker already has `env` in scope — check how `env.NODE_ENV` or `env.LOG_DRAIN` is accessed elsewhere in the file and use the same source), and cap the echoed text:
+- [x] **Step 1:** Replace the unconditional `process.stdout.write` with one gated on the environment (the worker already has `env` in scope — check how `env.NODE_ENV` or `env.LOG_DRAIN` is accessed elsewhere in the file and use the same source), and cap the echoed text:
   ```ts
   // The seam stays a seam, but stdout is the wrong sink for user data: in
   // production this lands in container logs, aggregated and readable far
@@ -51,8 +51,8 @@
   }
   ```
   Keep the usage-ledger lines exactly as they are.
-- [ ] **Step 2:** Confirm the write is the only stdout emission of prompt/completion content in the file (grep `generation.text` / `payload` in worker.ts).
-- [ ] **Step 3:** Commit: `fix(worker): a completion is not a log line`.
+- [x] **Step 2:** Confirm the write is the only stdout emission of prompt/completion content in the file (grep `generation.text` / `payload` in worker.ts).
+- [x] **Step 3:** Commit: `fix(worker): a completion is not a log line`.
 
 ### Task 2: Don't lose the last record
 
