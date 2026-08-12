@@ -16,9 +16,7 @@
     "@keel/db": "workspace:*",
     "@keel/env": "workspace:*",
     "@keel/mail": "workspace:*",
-    "better-auth": "catalog:",
-    "dotenv": "catalog:",
-    "zod": "catalog:"
+    "better-auth": "catalog:"
   },
   "devDependencies": {
     "@keel/config": "workspace:*",

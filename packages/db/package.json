@@ -19,14 +19,13 @@
   "dependencies": {
     "@keel/env": "workspace:*",
     "@keel/http": "workspace:*",
-    "dotenv": "catalog:",
     "drizzle-orm": "catalog:",
-    "pg": "catalog:",
-    "zod": "catalog:"
+    "pg": "catalog:"
   },
   "devDependencies": {
     "@keel/config": "workspace:*",
     "@types/pg": "catalog:",
+    "dotenv": "catalog:",
     "drizzle-kit": "catalog:",
     "typescript": "catalog:"
   }

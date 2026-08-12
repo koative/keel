@@ -383,6 +383,11 @@ server image is a tsdown bundle; the web image is a static build behind nginx.
 - Dependency versions live in the root `workspaces.catalog`. `bun add` cannot write
   there, so `tools/check-catalog.ts` fails the build when a workspace pins a version
   the catalog already owns.
+- `better-auth` is the one catalog entry pinned exact (`1.6.25`, no `^`): its config
+  surface and the behaviors the auth surface relies on (session defaults, IP trust,
+  email-verification gating) shift between minors, and better-auth itself pins its
+  core and adapters to the same exact version. Upgrading is a deliberate, manually
+  verified change, never an automatic range move.
 - `AGENTS.md` is the agent entry point; `CLAUDE.md` is a symlink to it. It stays
   short and deliberately repeats nothing the linter already enforces.
 - Logging is evlog's wide-event model: one event per request. 4xx is recorded at

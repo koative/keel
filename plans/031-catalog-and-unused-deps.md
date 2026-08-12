@@ -53,12 +53,12 @@
 
 **Files:** `packages/db/package.json`, `packages/auth/package.json`, root `package.json`
 
-- [ ] **Step 1:** Verify by grep that `packages/db/src` (excluding `drizzle.config.ts`) and `packages/auth/src` never import `zod` or `dotenv` directly (`import ... from "zod"` / `"dotenv"`). Include `.test.ts` files in the check — a test import still justifies the dep.
-- [ ] **Step 2:** In `packages/db/package.json`: remove `zod` from deps (if the grep is clean); move `dotenv` to `devDependencies` (it is used by `drizzle.config.ts`).
-- [ ] **Step 3:** In `packages/auth/package.json`: remove `zod` and `dotenv` from deps if the grep is clean.
-- [ ] **Step 4:** In root `package.json` catalog: replace the bare `"better-auth": "1.6.25"` with the same value plus a trailing comment (JSON comments are not valid in package.json — use the supported form: an adjacent `//` is invalid, so instead check whether the repo already uses a `"catalog": { ... }` with comments elsewhere; if JSON forbids it, document the pin reason in `packages/auth/src/index.ts`'s header comment or a `//` comment is impossible — use the catalog key order and a README/AGENTS note if needed). Prefer: add the reason to the nearest human-readable file (`packages/auth/package.json` can't comment either — so put it in `packages/auth/src/index.ts`'s module doc or the root README's dependency section). If the repo already has a convention for this, follow it.
-- [ ] **Step 5:** `bun install --frozen-lockfile` succeeds; `bun tools/check-catalog.ts` green; typecheck green.
-- [ ] **Step 6:** Commit: `chore(deps): packages declare what they import`.
+- [x] **Step 1:** Verify by grep that `packages/db/src` (excluding `drizzle.config.ts`) and `packages/auth/src` never import `zod` or `dotenv` directly (`import ... from "zod"` / `"dotenv"`). Include `.test.ts` files in the check — a test import still justifies the dep.
+- [x] **Step 2:** In `packages/db/package.json`: remove `zod` from deps (if the grep is clean); move `dotenv` to `devDependencies` (it is used by `drizzle.config.ts`).
+- [x] **Step 3:** In `packages/auth/package.json`: remove `zod` and `dotenv` from deps if the grep is clean.
+- [x] **Step 4:** In root `package.json` catalog: replace the bare `"better-auth": "1.6.25"` with the same value plus a trailing comment (JSON comments are not valid in package.json — use the supported form: an adjacent `//` is invalid, so instead check whether the repo already uses a `"catalog": { ... }` with comments elsewhere; if JSON forbids it, document the pin reason in `packages/auth/src/index.ts`'s header comment or a `//` comment is impossible — use the catalog key order and a README/AGENTS note if needed). Prefer: add the reason to the nearest human-readable file (`packages/auth/package.json` can't comment either — so put it in `packages/auth/src/index.ts`'s module doc or the root README's dependency section). If the repo already has a convention f… (no JSON-comment convention exists; documented in the README Notes dependency-governance bullet instead).
+- [x] **Step 5:** `bun install --frozen-lockfile` succeeds; `bun tools/check-catalog.ts` green; typecheck green.
+- [x] **Step 6:** Commit: `chore(deps): packages declare what they import`.
 
 ## Done when
 
