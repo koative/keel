@@ -81,6 +81,18 @@ export async function runOnce(
 	return claimed.length;
 }
 
+/**
+ * Whether the worker should poll again immediately instead of sleeping.
+ * A full batch means more work was already due when it was claimed, so
+ * sleeping with a backlog just delays the next batch.
+ */
+export function shouldPollImmediately(
+	processed: number,
+	batchSize: number
+): boolean {
+	return processed >= batchSize;
+}
+
 async function runJob(
 	registry: JobRegistry,
 	entry: ClaimedJob,

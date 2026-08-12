@@ -42,7 +42,7 @@
 
 **Files:** `apps/server/src/lib/jobs.ts`, `apps/server/src/worker.ts`
 
-- [ ] **Step 1:** Extract the decision to a pure exported function. Place it in `apps/server/src/lib/jobs.ts` beside `runOnce` (it is queue policy, and `worker.ts` can import it; check the file's import direction rules — lib/jobs.ts may not import worker.ts, but worker.ts may import lib/jobs.ts, which is already the case for `runOnce`):
+- [x] **Step 1:** Extract the decision to a pure exported function. Place it in `apps/server/src/lib/jobs.ts` beside `runOnce` (it is queue policy, and `worker.ts` can import it; check the file's import direction rules — lib/jobs.ts may not import worker.ts, but worker.ts may import lib/jobs.ts, which is already the case for `runOnce`):
   ```ts
   /**
    * Whether the worker should poll again immediately instead of sleeping.
@@ -53,10 +53,10 @@
     return processed >= batchSize;
   }
   ```
-- [ ] **Step 2:** In `worker.ts`, replace the inline comparison with the function call, keeping the comment (or moving it onto the function).
-- [ ] **Step 3:** Add tests (a new suite `worker.loop.test.ts` beside `jobs.ts` or inside the existing jobs suite — follow `tools/check-naming.ts`): boundary table — `(0, n) → false`, `(n-1, n) → false`, `(n, n) → true`, `(n+1, n) → true`, `(0, 0) → ?` (decide the degenerate case and pin it). Pure function, no DB needed.
-- [ ] **Step 4:** Run with explicit paths: `cd apps/server && bun test src/lib/worker.loop.test.ts` — green.
-- [ ] **Step 5:** Commit: `test(worker): the full-batch poll decision is pinned`.
+- [x] **Step 2:** In `worker.ts`, replace the inline comparison with the function call, keeping the comment (or moving it onto the function).
+- [x] **Step 3:** Add tests (a new suite `worker.loop.test.ts` beside `jobs.ts` or inside the existing jobs suite — follow `tools/check-naming.ts`): boundary table — `(0, n) → false`, `(n-1, n) → false`, `(n, n) → true`, `(n+1, n) → true`, `(0, 0) → ?` (decide the degenerate case and pin it). Pure function, no DB needed. (Named `jobs.loop.test.ts` — `check-naming.ts` rejects `worker.loop.test.ts` because `lib/` has no `worker` module; `jobs.loop` names `jobs.ts`, which is where the decision lives.)
+- [x] **Step 4:** Run with explicit paths: `cd apps/server && bun test src/lib/jobs.loop.test.ts` — green.
+- [x] **Step 5:** Commit: `test(worker): the full-batch poll decision is pinned`.
 
 ### Task 2: The backoff ladder's exact values
 

@@ -6,7 +6,7 @@ import { sendMail } from "@keel/mail/send";
 import { z } from "zod";
 import { aiModel } from "@/lib/ai";
 import { hasUsageForJob, recordUsage } from "@/lib/ai.repository";
-import { type JobRegistry, runOnce } from "@/lib/jobs";
+import { type JobRegistry, runOnce, shouldPollImmediately } from "@/lib/jobs";
 import { resolveMailConfig } from "@/lib/mail";
 
 /**
@@ -152,9 +152,7 @@ async function loop(): Promise<void> {
 			process.stderr.write(`[worker] poll failed: ${String(error)}\n`);
 		}
 
-		// A full batch means more work was already due when it was claimed, so poll
-		// again immediately instead of idling with a backlog.
-		if (processed < env.WORKER_BATCH_SIZE) {
+		if (!shouldPollImmediately(processed, env.WORKER_BATCH_SIZE)) {
 			await sleep(env.WORKER_POLL_MS);
 		}
 	}
