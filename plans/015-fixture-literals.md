@@ -35,11 +35,11 @@
 
 **Files:** `packages/crypto/src/seal.test.ts`, `packages/http/src/response.fixtures.ts`
 
-- [ ] **Step 1:** In `seal.test.ts`, replace the literal with a test-shaped key, e.g. `"sk_test_51H8xQ2LkdIwHu7ix"` (or `"test-secret-key-32-bytes-long-..."` — any obviously-fake value; check whether any test asserts the exact string — it must not, since the fixture generates its own).
-- [ ] **Step 2:** In `response.fixtures.ts`, replace the DSN with an RFC 2606-reserved-host version that still exercises the leak path, e.g. `"postgres://admin:hunter2@db.example.invalid/prod"` — `example.invalid` is reserved for exactly this. Keep the comment explaining the fixture's purpose.
-- [ ] **Step 3:** Run the affected suites with explicit paths: `cd packages/crypto && bun test src/seal.test.ts` and `cd packages/http && bun test src/response.failure.test.ts` (or whichever test file exercises `LEAKED_SECRET`). Expected: all green, no assertion on the literal.
-- [ ] **Step 4:** Confirm no other file references the old literal: `grep -rn "sk_live_51H8xQ2LkdIwHu7ix\|10.0.0.4" --include="*.ts" .` → zero hits outside git history.
-- [ ] **Step 5:** Commit: `chore(fixtures): live-key-shaped literals invite copy-paste`.
+- [x] **Step 1:** In `seal.test.ts`, replace the literal with a test-shaped key, e.g. `"sk_test_51H8xQ2LkdIwHu7ix"` (or `"test-secret-key-32-bytes-long-..."` — any obviously-fake value; check whether any test asserts the exact string — it must not, since the fixture generates its own).
+- [x] **Step 2:** In `response.fixtures.ts`, replace the DSN with an RFC 2606-reserved-host version that still exercises the leak path, e.g. `"postgres://admin:hunter2@db.example.invalid/prod"` — `example.invalid` is reserved for exactly this. Keep the comment explaining the fixture's purpose.
+- [x] **Step 3:** Run the affected suites with explicit paths: `cd packages/crypto && bun test src/seal.test.ts` and `cd packages/http && bun test src/response.failure.test.ts` (or whichever test file exercises `LEAKED_SECRET`). Expected: all green, no assertion on the literal.
+- [x] **Step 4:** Confirm no other file references the old literal: `grep -rn "sk_live_51H8xQ2LkdIwHu7ix\|10.0.0.4" --include="*.ts" .` → zero hits outside git history.
+- [x] **Step 5:** Commit: `chore(fixtures): live-key-shaped literals invite copy-paste`.
 
 ## Done when
 

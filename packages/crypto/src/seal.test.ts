@@ -4,7 +4,7 @@ import { createCipher } from "./seal";
 
 const KEY = randomBytes(32).toString("base64");
 const OTHER_KEY = randomBytes(32).toString("base64");
-const SECRET = "sk_live_51H8xQ2LkdIwHu7ix";
+const SECRET = "test-secret-not-a-real-credential";
 
 const EMPTY_KEY_MESSAGE = /got 0/;
 const KEY_TOO_LONG_MESSAGE = /exactly 32 bytes, got 64/;
