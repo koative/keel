@@ -39,7 +39,7 @@
 | `packages/db/src/migrations/0006_idempotency_organization.sql` | **Create** (drizzle-kit generate + one data statement if existing rows need org backfill — read whether the table can have pre-existing rows; if the table is new-only, the column can be NOT NULL from birth). |
 | `apps/server/src/lib/idempotency.repository.ts` | **Modify.** Lookup on `(actorId, organizationId, key)`; claim-first insert. |
 | `apps/server/src/lib/idempotency.ts` | **Modify.** Insert a claim row before `next()`; on conflict, 409 without running the handler; store the response on success; tenant-scoped replay equality. |
-| `apps/server/src/lib/idempotency.test.ts` | **Modify/Extend.** Concurrent same-key no-double-execution; org-switch no-wrong-replay; the existing cases keep passing. |
+| `apps/server/src/lib/idempotency.test.ts` | **Modify/Extend.** Org-scope the existing cases. The new race and org-switch tests live in `apps/server/src/lib/idempotency-race.test.ts` (new file): the suite's existing cases were already at the 200-line cap, so the new coverage was split out rather than crammed in — same throwaway-app shape, same DB fixtures. |
 | `apps/server/src/modules/projects/public/projects.v1.routes.ts:164` | Possibly **Modify** only if the middleware signature changes (it should not). |
 
 ### Task 1: The schema
@@ -56,21 +56,21 @@
 
 **Files:** `apps/server/src/lib/idempotency.repository.ts`, `apps/server/src/lib/idempotency.ts`
 
-- [ ] **Step 1:** Read the whole middleware and repository (they are small). Map the current flow: lookup → equality → expired-delete → `next()` → insert.
-- [ ] **Step 2:** Repository: add a claim insert — `insert ... onConflictDoNothing({ target: [actorId, organizationId, key] }) returning *` — that returns the row whether it was newly inserted (this caller wins) or already existed (a concurrent caller or a true replay).
-- [ ] **Step 3:** Middleware, new flow:
+- [x] **Step 1:** Read the whole middleware and repository (they are small). Map the current flow: lookup → equality → expired-delete → `next()` → insert.
+- [x] **Step 2:** Repository: add a claim insert — `insert ... onConflictDoNothing({ target: [actorId, organizationId, key] }) returning *` — that returns the row whether it was newly inserted (this caller wins) or already existed (a concurrent caller or a true replay).
+- [x] **Step 3:** Middleware, new flow:
   1. Look up by `(actorId, organizationId, key)`.
   2. If a committed row exists and its method/path/requestHash match → replay the stored response (existing behavior, now org-scoped).
   3. If a committed row exists and differs → 409 (existing behavior).
   4. If none exists → **claim-insert first** (before `next()`). Winner proceeds to the handler; a concurrent loser's claim-insert conflicts → the loser 409s immediately, before its handler runs. On the winner's success path, store the response on the claimed row. On the winner's failure path, delete the claim (or mark it — match the existing failure handling in `:117-126` and the test "stores nothing for a failure so the retry reaches the handler").
   - The expired-key branch: same claim-first shape (delete the expired row, then claim).
-- [ ] **Step 4:** Keep the comment voice: update `:108-116` so it says the race is closed (the loser never runs the handler) while the 409 answer is unchanged.
-- [ ] **Step 5:** Tests (extend `idempotency.test.ts`):
+- [x] **Step 4:** Keep the comment voice: update `:108-116` so it says the race is closed (the loser never runs the handler) while the 409 answer is unchanged.
+- [x] **Step 5:** Tests (extend `idempotency.test.ts`):
   - Two **concurrent** same-key requests (fire both, await both): exactly one runs the handler (assert via a handler side-effect counter), the loser gets 409.
   - Org switch: perform a request with org A, then the same key+body with org B → B must NOT replay A's response (it runs fresh or 409s as a new key-space member).
   - All existing tests keep passing (especially "stores nothing for a failure" and the 409 cases).
-- [ ] **Step 6:** Run the suite: `cd apps/server && bun test src/lib/idempotency.test.ts` — green.
-- [ ] **Step 7:** Commit: `fix(idempotency): the loser never runs the handler, and replays are org-scoped`.
+- [x] **Step 6:** Run the suite: `cd apps/server && bun test src/lib/idempotency.test.ts` — green.
+- [x] **Step 7:** Commit: `fix(idempotency): the loser never runs the handler, and replays are org-scoped`.
 
 ## Done when
 

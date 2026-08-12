@@ -10,7 +10,12 @@ import { Hono } from "hono";
 import type { AppEnv } from "@/lib/context";
 import { idempotent } from "@/lib/idempotency";
 import { insert, sweepExpiredKeys } from "@/lib/idempotency.repository";
-import { seedUser, skipNotice, testDbReady } from "../../test-db";
+import {
+	seedOrganization,
+	seedUser,
+	skipNotice,
+	testDbReady,
+} from "../../test-db";
 
 const ready = await testDbReady();
 if (!ready) {
@@ -20,15 +25,20 @@ if (!ready) {
 /**
  * Driven through a throwaway Hono app rather than the real one: the middleware
  * is mounted by whoever needs it, so the thing under test is the middleware plus
- * a handler, not the route table. The stub that sets `actorId` stands in for
- * `requireUser`, which is the only reason this can run without a session.
+ * a handler, not the route table. The stub that sets `actorId` and
+ * `organizationId` stands in for `requireUser` and `requireOrg`, which is the
+ * only reason this can run without a session; each app seeds its own user and
+ * organization.
  */
-function buildApp(actorId: string) {
+async function buildApp(actorId?: string, organizationId?: string) {
+	const owner = actorId ?? (await seedUser());
+	const tenant = organizationId ?? (await seedOrganization());
 	const calls = { count: 0 };
 	const app = new Hono<AppEnv>();
 	app.use(evlog());
 	app.use(async (c, next) => {
-		c.set("actorId", actorId);
+		c.set("actorId", owner);
+		c.set("organizationId", tenant);
 		await next();
 	});
 	app.use(idempotent);
@@ -43,7 +53,7 @@ function buildApp(actorId: string) {
 	});
 	app.post("/others", (c) => created(c, { where: "others" }));
 	app.onError((error, c) => failure(c, error));
-	return { app, calls };
+	return { actorId: owner, app, calls, organizationId: tenant };
 }
 
 function post(app: Hono<AppEnv>, path: string, body: unknown, key?: string) {
@@ -63,15 +73,12 @@ const storedFor = (actorId: string) =>
 
 // The wire code a server failure carries through the real onError is the key
 // name of the 500 status in @keel/http's single table (response.ts maps the
-// status to its own key name). Typed as ErrorCode so a rename in that table
-// fails this test.
+// status to its own key name). Typed as ErrorCode so a rename fails this test.
 const INTERNAL_CODE: ErrorCode = "INTERNAL_SERVER_ERROR";
 
 describe.skipIf(!ready)("idempotency middleware", () => {
 	it("passes a request without the header straight through", async () => {
-		const actorId = await seedUser();
-		const { app, calls } = buildApp(actorId);
-
+		const { app, calls, actorId } = await buildApp();
 		const response = await post(app, "/things", { name: "plain" });
 
 		expect(response.status).toBe(201);
@@ -79,11 +86,10 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 		expect(await storedFor(actorId)).toHaveLength(0);
 	});
 
-	// The handler reads the body with c.req.json() after the middleware has read
-	// it with c.req.text(); a broken body cache shows up here as a 500.
+	// The handler reads the body with c.req.json() after the middleware read it
+	// with c.req.text(); a broken body cache shows up here as a 500.
 	it("replays the first reply byte for byte on a repeat", async () => {
-		const actorId = await seedUser();
-		const { app, calls } = buildApp(actorId);
+		const { app, calls } = await buildApp();
 		const key = crypto.randomUUID();
 		const first = await post(app, "/things", { name: "once" }, key);
 		const second = await post(app, "/things", { name: "once" }, key);
@@ -96,8 +102,7 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 	});
 
 	it("rejects the same key with a different body as a 409", async () => {
-		const actorId = await seedUser();
-		const { app, calls } = buildApp(actorId);
+		const { app, calls } = await buildApp();
 		const key = crypto.randomUUID();
 		await post(app, "/things", { name: "first" }, key);
 		const response = await post(app, "/things", { name: "second" }, key);
@@ -107,8 +112,7 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 	});
 
 	it("rejects the same key on a different path as a 409", async () => {
-		const actorId = await seedUser();
-		const { app, calls } = buildApp(actorId);
+		const { app, calls } = await buildApp();
 		const key = crypto.randomUUID();
 		await post(app, "/things", { name: "first" }, key);
 		const response = await post(app, "/others", { name: "first" }, key);
@@ -118,8 +122,7 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 	});
 
 	it("stores nothing for a failure so the retry reaches the handler", async () => {
-		const actorId = await seedUser();
-		const { app, calls } = buildApp(actorId);
+		const { app, calls, actorId } = await buildApp();
 		const key = crypto.randomUUID();
 		const first = await post(app, "/things", { boom: true, name: "x" }, key);
 		expect(first.status).toBe(500);
@@ -131,14 +134,12 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 		expect(firstBody.error.message).not.toContain("handler exploded");
 		expect(await storedFor(actorId)).toHaveLength(0);
 		const retry = await post(app, "/things", { boom: true, name: "x" }, key);
-
 		expect(retry.status).toBe(500);
 		expect(calls.count).toBe(2);
 	});
 
 	it("rejects an empty or over-long key as a 400", async () => {
-		const actorId = await seedUser();
-		const { app, calls } = buildApp(actorId);
+		const { app, calls } = await buildApp();
 		const empty = await post(app, "/things", { name: "x" }, "   ");
 		const long = await post(app, "/things", { name: "x" }, "k".repeat(256));
 
@@ -151,14 +152,14 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 	// slot, so it has to be cleared on the way past rather than reported as a
 	// conflict — hence the deliberately mismatched hash.
 	it("treats an expired record as absent and runs the handler again", async () => {
-		const actorId = await seedUser();
-		const { app, calls } = buildApp(actorId);
+		const { app, calls, actorId, organizationId } = await buildApp();
 		const key = crypto.randomUUID();
 		await insert({
 			actorId,
 			expiresAt: new Date(Date.now() - 1000),
 			key,
 			method: "POST",
+			organizationId,
 			path: "/things",
 			requestHash: "stale",
 			response: { body: '{"data":{"attempt":0}}' },
@@ -175,10 +176,11 @@ describe.skipIf(!ready)("idempotency middleware", () => {
 	});
 
 	it("sweeps only the rows past their expiry", async () => {
-		const actorId = await seedUser();
+		const { actorId, organizationId } = await buildApp();
 		const base = {
 			actorId,
 			method: "POST",
+			organizationId,
 			path: "/things",
 			requestHash: "hash",
 			response: { body: "{}" },

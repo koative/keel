@@ -2,9 +2,10 @@ import { badRequest, conflict } from "@keel/http/errors";
 import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "./context";
 import {
+	claim,
 	deleteById,
-	findByActorAndKey,
-	insert,
+	findByActorOrgAndKey,
+	storeResponse,
 } from "./idempotency.repository";
 
 const HEADER = "Idempotency-Key";
@@ -49,12 +50,13 @@ function replay(record: { response: { body: string }; status: number }) {
 
 /**
  * Makes a write route safe to retry: the same `Idempotency-Key` from the same
- * actor for the same request replays the first reply instead of running the
- * handler again.
+ * actor in the same organization for the same request replays the first reply
+ * instead of running the handler again.
  *
- * MUST be mounted after `requireUser`: the key space is scoped to `actorId`,
- * and that guard is what puts `actorId` on the context. In front of it there is
- * no actor and every client would share one namespace.
+ * MUST be mounted after `requireUser` and `requireOrg`: the key space is scoped
+ * to `actorId` and `organizationId`, and those guards are what put both on the
+ * context. In front of them there is no actor or tenant and every client would
+ * share one namespace.
  */
 export const idempotent = createMiddleware<AppEnv>(async (c, next) => {
 	const supplied = c.req.header(HEADER);
@@ -73,17 +75,24 @@ export const idempotent = createMiddleware<AppEnv>(async (c, next) => {
 	}
 
 	const actorId = c.get("actorId");
+	const organizationId = c.get("organizationId");
 	// Reading the body here is safe: `c.req.text()` fills Hono's body cache and
 	// `c.req.json()` reads through that same cache, so the validator and the
 	// handler downstream still see the body.
 	const requestHash = await sha256(await c.req.text());
-	const stored = await findByActorAndKey(actorId, key);
+	const stored = await findByActorOrgAndKey(actorId, organizationId, key);
 
 	if (stored) {
 		if (stored.expiresAt.getTime() <= Date.now()) {
 			// Past its expiry the row is invisible to the client, so it must not be
 			// allowed to occupy the unique slot the new request needs.
 			await deleteById(stored.id);
+		} else if (stored.status === 0) {
+			// A claim still waiting on its handler: a concurrent request holds the
+			// key and has not answered yet. Replaying would hand back a response
+			// that does not exist, and running the handler would double the side
+			// effect — so this is the same 409 a finished mismatch gets.
+			throw conflict("Request", HEADER);
 		} else if (
 			stored.method === c.req.method &&
 			stored.path === c.req.path &&
@@ -97,31 +106,37 @@ export const idempotent = createMiddleware<AppEnv>(async (c, next) => {
 		}
 	}
 
+	// Claim first, handler second. The insert is the arbiter of the race: the
+	// unique index admits exactly one request onto the handler, and a concurrent
+	// request that read an empty table loses here — before `next()`, so its side
+	// effect never happens. This closes the old check-then-act window, where
+	// both requests ran the handler and the loser's post-handler insert was the
+	// only thing left to surface a 409. The loser's answer is unchanged — still
+	// a 409 — but the double execution is gone.
+	const claimed = await claim({
+		actorId,
+		expiresAt: new Date(Date.now() + TTL_MS),
+		key,
+		method: c.req.method,
+		organizationId,
+		path: c.req.path,
+		requestHash,
+	});
+	if (!claimed) {
+		// Lost the claim race: the 409 must not wait for the winner to finish.
+		throw conflict("Request", HEADER);
+	}
+
 	await next();
 
 	if (c.res.status < 200 || c.res.status >= 300) {
 		// A failure is never stored. A retry after a 500 has to reach the handler
 		// again, and a rejected request produced nothing worth replaying.
+		await deleteById(claimed.id);
 		return;
 	}
 
 	// Cloned so the caller still receives an unread body.
 	const body = await c.res.clone().text();
-
-	// A duplicate here means a second request with this key was in flight and won
-	// the race. `withUniqueConflict` turns that into a 409 rather than a replay,
-	// which is the honest answer: this request's handler has already run, so its
-	// side effect happened, and handing back the winner's body would hide the
-	// double execution behind a 200. The 409 tells the client the key is spent
-	// and a retry will get the stored reply.
-	await insert({
-		actorId,
-		expiresAt: new Date(Date.now() + TTL_MS),
-		key,
-		method: c.req.method,
-		path: c.req.path,
-		requestHash,
-		response: { body },
-		status: c.res.status,
-	});
+	await storeResponse(claimed.id, { body }, c.res.status);
 });
