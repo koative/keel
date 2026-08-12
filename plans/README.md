@@ -46,6 +46,20 @@ Each chosen finding becomes a self-contained plan file (`001-<slug>.md`, …) st
 
 ## Status
 
+All plans executed on top of `39fd32c` via parallel agents; `bun run check` green (21/21 tasks, 20 architecture rules verified, migrations match).
+
 | # | Plan | Finding | Status |
 |---|---|---|---|
-| 001 | [Relative `VITE_SERVER_URL`](./001-relative-vite-server-url.md) | CORR-04 | Written, not executed |
+| 001 | [Relative `VITE_SERVER_URL`](./001-relative-vite-server-url.md) | CORR-04 | Executed (browser-verified boot) |
+| 002 | [`MAIL_DRIVER=log` production guard](./002-mail-driver-production-guard.md) | SEC-04 | Executed (worker refuses to boot) |
+| 004 | [Resend request timeout](./004-resend-request-timeout.md) | PERF-01 | Executed |
+| 005 | [Body-limit 413 + coverage](./005-body-limit-status-and-coverage.md) | CORR-06 | Executed (413 declared on `/v1` POST) |
+| 006 | [Client-IP posture](./006-client-ip-posture.md) | SEC-03 | Executed (startup refusal verified) |
+| 010 | [Job settlement separation](./010-job-settlement-separation.md) | CORR-02 | Executed (contract for 011 landed) |
+| 011 | [Stranded job reaper](./011-stranded-job-reaper.md) | CORR-01 | Executed, reconciled with 024 |
+| 014 | [Enforcement coverage](./014-enforcement-coverage.md) | TEST-10 | Executed (20 rules verified) |
+| 019 | [Prod compose optional keys](./019-prod-compose-optional-keys.md) | DOCS-03 | Executed (`check-env` wired into the gate) |
+| 022 | [Webhook replay window](./022-webhook-replay-window.md) | SEC-05 | Executed (window + receiver contract) |
+| 024 | [Dedupe across the running window](./024-dedupe-running-window.md) | CORR-08 | Executed (migration 0005) |
+
+**Reconciliation note (011 × 024):** plan 024 widened the dedupe index to cover `running` after 011 landed. The reaper's collapse branch became unreachable and its key-nulling on requeue would have reopened the duplicate window 024 closes; the reaper now requeues with the key held until settlement. See the reconciled "Done when" in [011](./011-stranded-job-reaper.md).
