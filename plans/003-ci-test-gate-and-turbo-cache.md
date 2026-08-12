@@ -35,9 +35,9 @@
 
 **Files:** `turbo.json`
 
-- [ ] **Step 1:** Add `"cache": false` to the `test` task, keeping the existing `dependsOn`, `env` and `outputs` keys.
-- [ ] **Step 2:** Prove it locally: `bun run check` twice in a row. The second run must **not** print `FULL TURBO` for the `test` task (check-types may still be cached — that is fine and desirable). Before the change, the second run was `19 cached, FULL TURBO, 27ms` for tests.
-- [ ] **Step 3:** Commit: `fix(turbo): the test gate must never be a cache hit`.
+- [x] **Step 1:** Add `"cache": false` to the `test` task, keeping the existing `dependsOn`, `env` and `outputs` keys.
+- [x] **Step 2:** Prove it locally: `bun run check` twice in a row. The second run must **not** print `FULL TURBO` for the `test` task (check-types may still be cached — that is fine and desirable). Before the change, the second run was `19 cached, FULL TURBO, 27ms` for tests.
+- [x] **Step 3:** Commit: `fix(turbo): the test gate must never be a cache hit`.
 
 ### Task 2: One suite run per CI run, one skip grep
 

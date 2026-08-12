@@ -9,6 +9,7 @@
       "outputs": ["dist/**"]
     },
     "test": {
+      "cache": false,
       "dependsOn": ["^check-types"],
       "env": ["DATABASE_URL", "NODE_ENV"],
       "outputs": []
