@@ -472,7 +472,7 @@ row, and the truncation bound."
 - Consumes: `complete(id: string, workerId: string): Promise<boolean>` and `markUnsettled(id: string, workerId: string, error: unknown): Promise<void>`, both produced by Task 1.
 - Produces: no new export. `runOnce(registry, workerId, limit)` keeps its signature and its meaning — the count is claimed jobs, and a job whose settlement did not land still counts as processed, because the worker did process it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append this case inside the `describe.skipIf(!ready)("job settlement", …)` block in `apps/server/src/lib/jobs.settlement.test.ts`, after the last `it`:
 
@@ -545,7 +545,7 @@ import { type JobRegistry, runOnce } from "@/lib/jobs";
 
 The `@/lib/jobs` import goes above the `@/lib/jobs.repository` one, which is where Biome's import sorting will put it anyway.
 
-- [ ] **Step 2: Run it and watch it fail for the right reason**
+- [x] **Step 2: Run it and watch it fail for the right reason**
 
 ```bash
 cd apps/server && bun test src/lib/jobs.settlement.test.ts
@@ -561,7 +561,7 @@ Received: ""
 
 Everything above it passes, and that is the finding's narrowing made visible: today's code already declines to `fail` this job, because `complete` matched zero rows without throwing. What it does instead is nothing at all — the row is stuck and no one is told. If you instead see a failure on `expect(row?.attempts).toBe(0)`, stop: something other than this plan has changed `runJob`.
 
-- [ ] **Step 3: Split the `try` in `runJob`**
+- [x] **Step 3: Split the `try` in `runJob`**
 
 In `apps/server/src/lib/jobs.ts`, replace the `try`/`catch` at lines 78-87 with:
 
@@ -588,7 +588,7 @@ In `apps/server/src/lib/jobs.ts`, replace the `try`/`catch` at lines 78-87 with:
 	await settle(entry.id, workerId);
 ```
 
-- [ ] **Step 4: Add the settlement path**
+- [x] **Step 4: Add the settlement path**
 
 Add these two constants directly above `runOnce` (after the `JobRegistry` type at line 31):
 
@@ -691,7 +691,7 @@ import {
 } from "./jobs.repository";
 ```
 
-- [ ] **Step 5: Run the test and watch it pass**
+- [x] **Step 5: Run the test and watch it pass**
 
 ```bash
 cd apps/server && bun test src/lib/jobs.settlement.test.ts
@@ -707,7 +707,7 @@ cd apps/server && bun test src/lib/jobs.test.ts src/lib/jobs.ownership.test.ts
 
 Expected: `11 pass`, `0 fail`. In particular `jobs.test.ts` still reports the throwing handler as `pending` with `lastError` `"handler exploded"`, still settles the sibling job in the same batch as `done`, and `jobs.ownership.test.ts` still refuses to resurrect a finished job — the fences are unchanged and only the caller's error path moved.
 
-- [ ] **Step 6: Prove the whole gate is green**
+- [x] **Step 6: Prove the whole gate is green**
 
 ```bash
 bun run check
@@ -715,7 +715,7 @@ bun run check
 
 Expected: every task successful, 16 architecture rules verified, migrations match. `jobs.ts` lands at roughly 85 code lines against the 200 limit. Both `biome-ignore` lines are for `lint/performance/noAwaitInLoops`, a rule the file already suppresses at line 51 with the same shape of justification — no new exemption class, so `tools/check-rules.ts` needs no fixture.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/server/src/lib/jobs.ts apps/server/src/lib/jobs.settlement.test.ts

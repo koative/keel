@@ -1,7 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	mock,
+	spyOn,
+} from "bun:test";
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
 import { eq } from "drizzle-orm";
+import { type JobRegistry, runOnce } from "@/lib/jobs";
 import {
 	claim,
 	complete,
@@ -49,6 +58,19 @@ async function claimed(): Promise<string> {
 async function rowFor(id: string) {
 	const [found] = await db.select().from(job).where(eq(job.id, id)).limit(1);
 	return found;
+}
+
+/** Collects the runner's report, keeping the test output clean. */
+function captureStderr(): string[] {
+	const written: string[] = [];
+
+	spyOn(process.stderr, "write").mockImplementation(((chunk: string) => {
+		written.push(String(chunk));
+
+		return true;
+	}) as typeof process.stderr.write);
+
+	return written;
 }
 
 afterEach(() => {
@@ -123,5 +145,44 @@ describe.skipIf(!ready)("job settlement", () => {
 		const stored = (await rowFor(id))?.lastError ?? "";
 		expect(stored.startsWith(SETTLEMENT_ERROR_PREFIX)).toBe(true);
 		expect(stored).toHaveLength(MAX_ERROR_LENGTH);
+	});
+
+	it("neither fails nor re-runs a job whose handler finished but whose settlement did not land", async () => {
+		const runs: string[] = [];
+		const registry: JobRegistry = new Map();
+
+		// Taking the row's lock away from inside the handler is the one way real
+		// input makes the fenced settling UPDATE match zero rows, and it lands in
+		// exactly the window that matters: after the work, before the queue writes
+		// it down. Nothing is mocked — this is an ordinary UPDATE against the test
+		// database, which is what the repo's ban on Drizzle doubles leaves.
+		registry.set("test.steal", async (_payload, jobId) => {
+			runs.push(jobId);
+			await db.update(job).set({ lockedBy: THIEF }).where(eq(job.id, jobId));
+		});
+
+		const id = await enqueueId("test.steal");
+		const reported = captureStderr();
+
+		expect(await runOnce(registry, WORKER, BATCH)).toBe(1);
+		expect(runs).toEqual([id]);
+
+		const row = await rowFor(id);
+		// `fail` was not called. An attempt is what a handler spends, and this
+		// handler succeeded; a settlement that could not be written down must not
+		// cost the job one of its five, nor overwrite a diagnosis with a pool error.
+		expect(row?.attempts).toBe(0);
+		expect(row?.lastError).toBeNull();
+		expect(row?.status).toBe("running");
+		expect(row?.lockedBy).toBe(THIEF);
+		// Unsettled work is not allowed to be silent: the row is now stuck until
+		// plan 011's reaper exists, and a human needs the job id to find it.
+		expect(reported.join("")).toContain(id);
+		expect(reported.join("")).toContain("no longer owns");
+
+		// Still `running`, so no poll can pick it up — the handler does not run a
+		// second time on the strength of a settlement that did not happen.
+		expect(await runOnce(registry, WORKER, BATCH)).toBe(0);
+		expect(runs).toEqual([id]);
 	});
 });
