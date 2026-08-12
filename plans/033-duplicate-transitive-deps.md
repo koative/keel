@@ -38,17 +38,17 @@
 
 **Files:** root `package.json`, `bun.lock`
 
-- [ ] **Step 1:** Confirm the current state: `bun pm ls --all 2>/dev/null | grep react-store` (or grep bun.lock) — both versions present.
-- [ ] **Step 2:** Add to root `package.json` (the `overrides` key — check whether bun honors it; Bun supports `"overrides"` in package.json, and also `"resolutions"`-style via `overrides` — verify against the installed Bun's docs in the repo's bun version, e.g. `bun --version`, and the repo's existing conventions; if the repo has no precedent, prefer Bun's documented `overrides`):
+- [x] **Step 1:** Confirm the current state: `bun pm ls --all 2>/dev/null | grep react-store` (or grep bun.lock) — both versions present.
+- [x] **Step 2:** Add to root `package.json` (the `overrides` key — check whether bun honors it; Bun supports `"overrides"` in package.json, and also `"resolutions"`-style via `overrides` — verify against the installed Bun's docs in the repo's bun version, e.g. `bun --version`, and the repo's existing conventions; if the repo has no precedent, prefer Bun's documented `overrides`):
   ```json
   "overrides": {
     "@tanstack/react-store": "0.11.1"
   }
   ```
   (Version: the hoisted one already in the graph, so the override is a downgrade for react-form and an upgrade for react-router — the risky direction. Alternative: try `0.11.1` first; if react-router's types break under 0.11.x, try pinning both transitives via `"@tanstack/react-router": { "@tanstack/react-store": "0.11.1" }`-style scoped override if Bun supports it.)
-- [ ] **Step 3:** `bun install`, then verify `bun.lock` has exactly one `@tanstack/react-store` version (grep). Run `cd apps/web && bun run check-types` and `cd apps/web && bun run build` — both green. Run the web tests if any (`bun test` in apps/web — explicit paths).
-- [ ] **Step 4:** If a single override breaks typecheck or build (react-router's `^0.9.3` types are not compatible with 0.11.x), revert the override, and instead **document** the split: add a comment in root package.json near the catalog (or the README's dependency section — check where plan 031 records catalog rationale) stating that the react-store 0.11.1/0.9.3 split is a transitive incompatibility between react-form and react-router, is tracked, and must be revisited when either library releases a compatible range. State in your report exactly what failed and why you chose documentation.
-- [ ] **Step 5:** Commit either outcome: `chore(deps): one react-store in the graph` OR `docs(deps): the react-store split is a tracked transitive conflict`.
+- [x] **Step 3:** `bun install`, then verify `bun.lock` has exactly one `@tanstack/react-store` version (grep). Run `cd apps/web && bun run check-types` and `cd apps/web && bun run build` — both green. Run the web tests if any (`bun test` in apps/web — explicit paths).
+- [ ] **Step 4:** Not needed — the single override succeeded: `bun.lock` resolves exactly one `@tanstack/react-store@0.11.1` and the web app typechecks (`check-types` exit 0) and builds (`build` exit 0) under it. If a single override breaks typecheck or build (react-router's `^0.9.3` types are not compatible with 0.11.x), revert the override, and instead **document** the split: add a comment in root package.json near the catalog (or the README's dependency section — check where plan 031 records catalog rationale) stating that the react-store 0.11.1/0.9.3 split is a transitive incompatibility between react-form and react-router, is tracked, and must be revisited when either library releases a compatible range. State in your report exactly what failed and why you chose documentation.
+- [x] **Step 5:** Commit either outcome: `chore(deps): one react-store in the graph` OR `docs(deps): the react-store split is a tracked transitive conflict`.
 
 ## Done when
 
