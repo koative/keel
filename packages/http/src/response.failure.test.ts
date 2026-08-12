@@ -18,6 +18,24 @@ describe("unexpected failures", () => {
 	});
 });
 
+// 413 is thrown by `requestBodyLimit` in apps/server, and `failure` maps a
+// thrown status to a response through one table. A status missing from that
+// table is not a passthrough — it is silently rewritten to 500 and its message
+// replaced, which is a worse answer than the 400 this replaced.
+describe("a status the app throws", () => {
+	it("renders 413 as itself rather than masking it as a 500", async () => {
+		const response = await testApp.request("/oversized");
+		const body = errorSchema.parse(await response.json());
+
+		expect(response.status).toBe(413);
+		expect(body.error.code).toBe("PAYLOAD_TOO_LARGE");
+		expect(body.status).toBe(413);
+		expect(body.title).toBe("Payload too large");
+		expect(body.type).toBe("https://keel.dev/errors/payload-too-large");
+		expect(body.error.why).toContain("1024");
+	});
+});
+
 // evlog folds everything about a request into one event, so severity is decided
 // once, in `failure`, and cannot be downgraded afterwards.
 describe("wide event severity", () => {

@@ -1,6 +1,6 @@
 import { evlog } from "evlog/hono";
 import { Hono } from "hono";
-import { notFound as notFoundError } from "./errors";
+import { notFound as notFoundError, payloadTooLarge } from "./errors";
 import {
 	badRequest,
 	conflict,
@@ -31,6 +31,9 @@ export const testApp = new Hono()
 	.get("/not-found", (c) => notFound(c, "Project"))
 	.get("/conflict", (c) => conflict(c, "Project", "slug"))
 	.get("/bad-request", (c) => badRequest(c, "cursor is not a valid timestamp"))
+	.get("/oversized", () => {
+		throw payloadTooLarge(1024);
+	})
 	.get("/thrown-not-found", () => {
 		throw notFoundError("Project");
 	})

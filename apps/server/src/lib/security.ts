@@ -1,5 +1,5 @@
 import { env } from "@keel/env/server";
-import { badRequest } from "@keel/http/errors";
+import { payloadTooLarge } from "@keel/http/errors";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 
@@ -50,8 +50,6 @@ export const referenceSecurityHeaders = secureHeaders({
 export const requestBodyLimit = bodyLimit({
 	maxSize: env.BODY_LIMIT_BYTES,
 	onError: () => {
-		throw badRequest(
-			`Request body exceeds the ${env.BODY_LIMIT_BYTES} byte limit`
-		);
+		throw payloadTooLarge(env.BODY_LIMIT_BYTES);
 	},
 });

@@ -68,6 +68,25 @@ export const badRequest = (detail: string) =>
 	});
 
 /**
+ * The body is larger than this deployment accepts. Distinct from a 400: the
+ * request is not malformed, and distinct from a 422: nothing about its contents
+ * was read, let alone rejected. The caller is being told a size, so the size is
+ * in the message — an error that says "too large" without saying "than what"
+ * leaves them guessing at a number only the server knows.
+ *
+ * `BODY_LIMIT_BYTES` is a deployment's own setting, so this is a limit the
+ * caller can ask to have raised rather than a fact about the protocol.
+ */
+export const payloadTooLarge = (limitBytes: number) =>
+	createError({
+		code: "PAYLOAD_TOO_LARGE",
+		fix: `Send at most ${limitBytes} bytes, or split the payload across several requests`,
+		message: "Request body too large",
+		status: status.PAYLOAD_TOO_LARGE,
+		why: `The request body exceeds the ${limitBytes} byte limit this deployment accepts`,
+	});
+
+/**
  * A dependency the request needs is not reachable. Distinct from a 500: nothing
  * is broken in our code, so a caller — or an orchestrator's readiness probe — is
  * right to retry rather than escalate.

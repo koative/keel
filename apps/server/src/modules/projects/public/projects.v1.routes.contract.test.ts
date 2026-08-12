@@ -55,7 +55,7 @@ const operations: Record<string, Operation> = {
 describe("the published v1 contract", () => {
 	it.each([
 		["GET /v1/projects", ["200", "401", "403", "422", "429"]],
-		["POST /v1/projects", ["201", "401", "403", "409", "422", "429"]],
+		["POST /v1/projects", ["201", "401", "403", "409", "413", "422", "429"]],
 		["GET /v1/projects/{id}", ["200", "401", "403", "404", "422", "429"]],
 	])("%s is behind the session and declares its statuses", (name, expected) => {
 		expect(operations[name]?.security).toEqual([{ sessionCookie: [] }]);

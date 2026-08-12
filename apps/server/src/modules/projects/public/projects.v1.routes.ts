@@ -97,6 +97,10 @@ export const createProjectRoute = createRoute({
 			errorSchema,
 			"This organization already has a project with that slug"
 		),
+		[status.PAYLOAD_TOO_LARGE]: problemContent(
+			errorSchema,
+			"The body is larger than this deployment's BODY_LIMIT_BYTES"
+		),
 		[status.UNPROCESSABLE_ENTITY]: problemContent(
 			errorSchema,
 			"The body failed validation"
