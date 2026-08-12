@@ -46,8 +46,8 @@
 
 **Files:** `apps/server/src/lib/membership.repository.ts`
 
-- [ ] **Step 1:** Update the doc comment at `:20-21` to name the new lifetime (one day, sliding) instead of "seven days at Better Auth's default", keeping the surrounding text's meaning.
-- [ ] **Step 2:** Commit: `docs(membership): the comment matches the session policy`.
+- [x] **Step 1:** Update the doc comment at `:20-21` to name the new lifetime (one day, sliding) instead of "seven days at Better Auth's default", keeping the surrounding text's meaning.
+- [x] **Step 2:** Commit: `docs(membership): the comment matches the session policy`.
 
 ## Done when
 

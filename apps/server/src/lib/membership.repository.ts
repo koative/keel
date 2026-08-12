@@ -17,8 +17,9 @@ import { and, eq } from "drizzle-orm";
  * `session.user.id === toBeRemovedMember.userId`, and `deleteMember` in
  * `adapter.mjs` never touches the session table at all. So when an admin removes
  * someone, the removed user's session still points at the organization, and a guard
- * that trusts the pointer keeps letting them in until the session expires — seven
- * days at Better Auth's default.
+ * that trusts the pointer keeps letting them in until the session expires — one
+ * day, sliding, per the session policy in `createAuth`: activity renews it, so
+ * the window is a day from the last renewal.
  *
  * Covered by `member_userId_idx`, and one indexed lookup is proportionate next to
  * the session query already on this path.
