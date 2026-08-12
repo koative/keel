@@ -557,7 +557,7 @@ asserts by id, so unlike its neighbours it never empties the table."
 - Consumes: `reclaimStrandedJobs` and `ReclaimedJobs` from Task 1; `env.WORKER_BATCH_SIZE` from `@keel/env/server` (`packages/env/src/server.ts:225`).
 - Produces: nothing other code imports. `tasks.ts` is an entrypoint.
 
-- [ ] **Step 1: Settle the threshold before writing it**
+- [x] **Step 1: Settle the threshold before writing it**
 
 Do the arithmetic yourself so the constant is defensible rather than inherited:
 
@@ -574,7 +574,7 @@ Read the batch size at runtime rather than hard-coding 25 minutes: a deployment 
 
 It is a constant and not an env key, deliberately. The value is not a deployment preference — it is a function of two timeouts that live in this repository, so a handler slower than 120 s must move this number in the same commit that adds it, where a reviewer can see both. The three retention windows beside it are constants for the same reason. And the repo's env rule has real weight: a new required key means `.env.example`, `apps/server/.env`, `.env.test` and `docker-compose.prod.yml`'s `x-app-env` (plan 019 owns that list), all to make a derived number overridable by someone with less information than the source has.
 
-- [ ] **Step 2: Add the import and the constants**
+- [x] **Step 2: Add the import and the constants**
 
 In `apps/server/src/tasks.ts`, the import block becomes:
 
@@ -629,7 +629,7 @@ const STRANDED_JOB_TIMEOUT_MS =
 	env.WORKER_BATCH_SIZE * SLOWEST_HANDLER_MS + RECLAIM_MARGIN_MS;
 ```
 
-- [ ] **Step 3: Call it and report it**
+- [x] **Step 3: Call it and report it**
 
 Replace the `settledJobs` assignment and the `process.stdout.write` that follows (currently `apps/server/src/tasks.ts:68-74`):
 
@@ -652,7 +652,7 @@ process.stdout.write(
 );
 ```
 
-- [ ] **Step 4: Run the entrypoint against an empty dev database**
+- [x] **Step 4: Run the entrypoint against an empty dev database**
 
 ```bash
 bun run db:start
@@ -667,7 +667,7 @@ Expected, with the counts before the semicolon depending on what is in your dev 
 
 The process must exit immediately rather than hanging for thirty seconds — `closePool()` at the end of the file is what makes that true, and the reaper must not have been added after it.
 
-- [ ] **Step 5: Run it against a row that is actually stranded**
+- [x] **Step 5: Run it against a row that is actually stranded**
 
 Stage one directly in the dev database, so the proof is the entrypoint and not the suite:
 
@@ -688,7 +688,7 @@ docker compose exec -T postgres psql -U postgres -d keel -c "delete from job whe
 
 Expected from the select: `pending | 1 | <null> | stranded: worker dead-worker:1 stopped without settling this job`.
 
-- [ ] **Step 6: Prove the whole gate is green**
+- [x] **Step 6: Prove the whole gate is green**
 
 ```bash
 bun run check
@@ -696,7 +696,7 @@ bun run check
 
 Expected: every turbo task successful, no naming violations, 16 architecture rules verified, migrations match.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/server/src/tasks.ts

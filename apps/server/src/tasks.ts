@@ -1,8 +1,9 @@
 import { closePool, db } from "@keel/db";
 import { rateLimit } from "@keel/db/schema/auth";
+import { env } from "@keel/env/server";
 import { lt } from "drizzle-orm";
 import { sweepExpiredKeys } from "@/lib/idempotency.repository";
-import { sweepSettledJobs } from "@/lib/jobs.repository";
+import { reclaimStrandedJobs, sweepSettledJobs } from "@/lib/jobs.repository";
 import { sweepIdleBuckets } from "@/lib/rate-limit";
 
 /**
@@ -48,6 +49,43 @@ const IDLE_BUCKET_RETENTION_MS = 60 * 60 * 1000;
  */
 const SETTLED_JOB_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 
+/**
+ * The ceiling on one job, and the reason the reaper's threshold is derived from
+ * the batch size instead of chosen.
+ *
+ * `ai.generate` aborts at `DEFAULT_TIMEOUT_MS` in `packages/ai/src/generate.ts`
+ * and `mail.send` aborts well before it, so 120s is what one job can honestly
+ * cost. A handler slower than this must raise this constant in the same commit,
+ * because a reaper that fires early does not corrupt the table — the ownership
+ * fences see to that — it sends a second email.
+ */
+const SLOWEST_HANDLER_MS = 120_000;
+
+/**
+ * On top of the batch: the claim round trip, a pool wait before a handler
+ * starts, and the ten seconds a hard-killed worker may already have spent inside
+ * its drain deadline.
+ */
+const RECLAIM_MARGIN_MS = 5 * 60 * 1000;
+
+/**
+ * How long a `running` row may hold its lock before another process may take it
+ * back.
+ *
+ * `claim` stamps `locked_at` on the whole batch in one statement and `runOnce`
+ * runs that batch one job at a time, so the last row in a batch waits out every
+ * job ahead of it before its own handler even starts. The worst legitimate hold
+ * is therefore the batch size times the slowest handler — read from the
+ * environment, because a deployment that widens the batch widens exactly this.
+ *
+ * At the documented `WORKER_BATCH_SIZE=10` that is 25 minutes. Not an env key:
+ * this is arithmetic over two timeouts that live in this repository, not a
+ * deployment decision, and the three retention windows above it are constants
+ * for the same reason.
+ */
+const STRANDED_JOB_TIMEOUT_MS =
+	env.WORKER_BATCH_SIZE * SLOWEST_HANDLER_MS + RECLAIM_MARGIN_MS;
+
 const expiredKeys = await sweepExpiredKeys();
 
 /**
@@ -69,8 +107,17 @@ const settledJobs = await sweepSettledJobs(
 	new Date(Date.now() - SETTLED_JOB_RETENTION_MS)
 );
 
+/**
+ * Last, and here rather than in the worker: a worker cannot recover the rows it
+ * lost by dying, and a `setInterval` in the API would run once per replica and
+ * never at all under scale-to-zero — the same argument the header makes for the
+ * sweeps. Overlapping runs stay harmless because the statement skips locked rows
+ * and rechecks `status = 'running'` on the row it writes.
+ */
+const strandedJobs = await reclaimStrandedJobs(STRANDED_JOB_TIMEOUT_MS);
+
 process.stdout.write(
-	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s), ${settledJobs} settled job(s)\n`
+	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s), ${settledJobs} settled job(s); requeued ${strandedJobs.requeued} stranded job(s), collapsed ${strandedJobs.collapsed}, exhausted ${strandedJobs.exhausted}\n`
 );
 
 // The pool holds an idle client for `idleTimeoutMillis`, and its timer keeps the
