@@ -22,6 +22,7 @@ import {
 	LIB_DIR,
 	MODULE_DIR,
 	SUPPORT,
+	WEB_DIR,
 } from "./check-rules.fixtures";
 
 async function write(path: string, source: string) {
@@ -44,7 +45,7 @@ try {
 	// "no violations found" when it is really looking at the wrong pipe — the
 	// exact silent success this script exists to rule out.
 	const result =
-		await $`bunx biome lint --max-diagnostics=200 --reporter=github ${MODULE_DIR} ${HELPER_DIR} ${LIB_DIR}`
+		await $`bunx biome lint --max-diagnostics=200 --reporter=github ${MODULE_DIR} ${HELPER_DIR} ${LIB_DIR} ${WEB_DIR}`
 			.nothrow()
 			.quiet();
 	const lines =
@@ -76,6 +77,7 @@ try {
 		rm(LIB_DIR, { force: true, recursive: true }),
 		rm(MODULE_DIR, { force: true, recursive: true }),
 		rm(HELPER_DIR, { force: true, recursive: true }),
+		rm(WEB_DIR, { force: true, recursive: true }),
 	]);
 }
 

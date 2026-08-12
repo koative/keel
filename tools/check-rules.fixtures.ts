@@ -8,6 +8,7 @@
 export const MODULE_DIR = "apps/server/src/modules/rulecheck";
 export const HELPER_DIR = "packages/http/src/rulecheck";
 export const LIB_DIR = "apps/server/src/lib/rulecheck";
+export const WEB_DIR = "apps/web/src/rulecheck";
 
 export interface Expectation {
 	/** Path relative to the repo root. */
@@ -158,6 +159,30 @@ export const EXPECTATIONS: Expectation[] = [
 		source:
 			'import type { Context } from "hono";\nexport const send = (c: Context) => c.json({ data: null }, 200);\n',
 		why: "the response helper module itself may call c.json",
+	},
+	{
+		// Not `export const first = 1, second = 2;` — measured, that produces no
+		// diagnostic at all, and a fixture that does not violate its rule reports
+		// ok forever while the rule it claims to guard is dead. The declaration
+		// has to be unexported; the export below keeps both bindings used.
+		path: `${MODULE_DIR}/pair.service.ts`,
+		rule: "lint/style/useSingleVarDeclarator",
+		source:
+			"const first = 1, second = 2;\nexport const total = first + second;\n",
+		why: "one declaration declares two variables",
+	},
+	{
+		// The only React root among the fixtures. apps/server and packages/http
+		// do not declare react, so a hook fixture there would report
+		// noUndeclaredDependencies and prove nothing about hooks — that is the
+		// mechanism the noUndeclaredDependencies fixture above depends on.
+		// A plain .ts file is enough: Biome matches the hook by name, so no JSX
+		// and no tsconfig are involved.
+		path: `${WEB_DIR}/deps.ts`,
+		rule: "lint/correctness/useExhaustiveDependencies",
+		source:
+			'import { useEffect, useState } from "react";\nexport function useRulecheck() {\n\tconst [count, setCount] = useState(0);\n\tuseEffect(() => {\n\t\tsetCount(count + 1);\n\t}, []);\n\treturn count;\n}\n',
+		why: "a hook omits a value its effect reads",
 	},
 ];
 

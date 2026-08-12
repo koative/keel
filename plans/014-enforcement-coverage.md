@@ -251,7 +251,7 @@ present, and exactly those two report DEAD with it removed."
 - Consumes: Task 1's fixture list — this task appends to it and its expected counts assume Task 1 landed (18 → 20).
 - Produces: `export const WEB_DIR = "apps/web/src/rulecheck"` from `tools/check-rules.fixtures.ts`. Task 3 folds it into the shared cleanup list.
 
-- [ ] **Step 1: Add the `useSingleVarDeclarator` fixture in the form the audit suggests**
+- [x] **Step 1: Add the `useSingleVarDeclarator` fixture in the form the audit suggests**
 
 Append to `EXPECTATIONS` in `tools/check-rules.fixtures.ts`, after the `${HELPER_DIR}/exempt.ts` entry that ends at line 141:
 
@@ -264,7 +264,7 @@ Append to `EXPECTATIONS` in `tools/check-rules.fixtures.ts`, after the `${HELPER
 	},
 ```
 
-- [ ] **Step 2: Run it and watch it fail for the right reason**
+- [x] **Step 2: Run it and watch it fail for the right reason**
 
 ```bash
 bun tools/check-rules.ts
@@ -283,7 +283,7 @@ exit=1
 
 The rule is enabled at `biome.jsonc:76` and it is alive — it simply does not report an *exported* declaration. This is the whole reason the fixture list is worth auditing: written the obvious way, this entry would have reported `ok` for a reason unrelated to the rule.
 
-- [ ] **Step 3: Fix the fixture source**
+- [x] **Step 3: Fix the fixture source**
 
 Replace the `source` of the entry you just added:
 
@@ -303,7 +303,7 @@ Replace the `source` of the entry you just added:
 
 `export const total = first + second;` is not decoration: without it both bindings are unused and the file collects unrelated diagnostics that make the run harder to read.
 
-- [ ] **Step 4: Run the script and watch it pass**
+- [x] **Step 4: Run the script and watch it pass**
 
 ```bash
 bun tools/check-rules.ts
@@ -317,7 +317,7 @@ Expected:
 check-rules: 19 architecture rules verified against deliberate violations.
 ```
 
-- [ ] **Step 5: Declare the fourth fixture root and the React fixture**
+- [x] **Step 5: Declare the fourth fixture root and the React fixture**
 
 `useExhaustiveDependencies` needs a workspace that declares React, and neither existing root does — putting it in `apps/server` would trip `noUndeclaredDependencies` instead, which is exactly how the fixture at `tools/check-rules.fixtures.ts:112-116` works. `apps/web/package.json:27-28` declares `react` and `react-dom`.
 
@@ -376,7 +376,7 @@ and the `finally` at `:75-79`:
 
 Cleanup first, on purpose: the next step is a deliberate failure, and a failure that leaves a violating file under `apps/web/src` would break the next `bun run check` for an unrelated reason.
 
-- [ ] **Step 6: Run it and watch the new fixture fail for the right reason**
+- [x] **Step 6: Run it and watch the new fixture fail for the right reason**
 
 ```bash
 bun tools/check-rules.ts
@@ -401,7 +401,7 @@ git status --short
 
 Expected: only `tools/check-rules.ts` and `tools/check-rules.fixtures.ts` modified, and no `apps/web/src/rulecheck` entry.
 
-- [ ] **Step 7: Lint the fourth root**
+- [x] **Step 7: Lint the fourth root**
 
 In `tools/check-rules.ts`, extend the invocation at `:46-49`:
 
@@ -412,7 +412,7 @@ In `tools/check-rules.ts`, extend the invocation at `:46-49`:
 			.quiet();
 ```
 
-- [ ] **Step 8: Run the script and watch it pass**
+- [x] **Step 8: Run the script and watch it pass**
 
 ```bash
 bun tools/check-rules.ts
@@ -426,7 +426,7 @@ Expected:
 check-rules: 20 architecture rules verified against deliberate violations.
 ```
 
-- [ ] **Step 9: Prove both new fixtures are not vacuous**
+- [x] **Step 9: Prove both new fixtures are not vacuous**
 
 Turn both rules off in `biome.jsonc` — change `"useExhaustiveDependencies": "error"` at line 39 to `"useExhaustiveDependencies": "off"`, and `"useSingleVarDeclarator": "error"` at line 76 to `"useSingleVarDeclarator": "off"` — then:
 
@@ -453,7 +453,7 @@ This is the assertion that matters: it says each fixture's `ok` is caused by the
 git checkout biome.jsonc
 ```
 
-- [ ] **Step 10: Prove the whole gate is green**
+- [x] **Step 10: Prove the whole gate is green**
 
 ```bash
 bun run check
@@ -461,7 +461,7 @@ bun run check
 
 Expected: every turbo task successful, `check-naming` still reporting 33 suites, and `check-rules: 20 architecture rules verified against deliberate violations.`
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add tools/check-rules.ts tools/check-rules.fixtures.ts
