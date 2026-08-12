@@ -151,6 +151,16 @@ export function createAuth() {
 		emailAndPassword: {
 			enabled: true,
 			/**
+			 * Sign-in is refused until the address has been proven, and that is
+			 * what makes the password-reset path safe: an account whose address was
+			 * never verified cannot be taken over through its inbox, because its
+			 * inbox was never shown to belong to it. With this on, the reset link
+			 * can only ever reach the person who proved the address — a stranger
+			 * who guessed a password has no mail to intercept, and an invitation
+			 * matched by address lands in the right hands or nowhere.
+			 */
+			requireEmailVerification: true,
+			/**
 			 * Enqueues and returns. Better Auth already wraps this call in
 			 * `runInBackgroundOrAwait`, precisely because a mailer is slow and the
 			 * response should not wait on it — so a durable queue is what that

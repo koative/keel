@@ -38,10 +38,10 @@
 
 **Files:** `packages/auth/src/index.ts`
 
-- [ ] **Step 1:** In the `emailAndPassword` object, add `requireEmailVerification: true` next to `enabled`, and extend the nearby comment so it says what the code now does: sign-in is refused until the address is proven, which is what makes the password-reset path safe.
-- [ ] **Step 2:** Prove the flag is recognized: grep the installed better-auth dist for `requireEmailVerification` and confirm the config key name and the `EMAIL_NOT_VERIFIED` status string it returns (note the exact spelling in your report for the form task).
-- [ ] **Step 3:** Run the auth package's tests if any exist (`cd packages/auth && bun test` — explicit paths only); the lead runs the full gate.
-- [ ] **Step 4:** Commit: `feat(auth): refuse sign-in until the address is proven`.
+- [x] **Step 1:** In the `emailAndPassword` object, add `requireEmailVerification: true` next to `enabled`, and extend the nearby comment so it says what the code now does: sign-in is refused until the address is proven, which is what makes the password-reset path safe.
+- [x] **Step 2:** Prove the flag is recognized: grep the installed better-auth dist for `requireEmailVerification` and confirm the config key name and the `EMAIL_NOT_VERIFIED` status string it returns (note the exact spelling in your report for the form task).
+- [x] **Step 3:** Run the auth package's tests if any exist (`cd packages/auth && bun test` — explicit paths only); the lead runs the full gate.
+- [x] **Step 4:** Commit: `feat(auth): refuse sign-in until the address is proven`.
 
 ### Task 2: Say it to the person typing the password
 
