@@ -46,7 +46,7 @@ app stops compiling, through a prebuilt declaration bundle so the client package
 never re-infers the route tree.
 
 **The enforcement is itself tested.** A rule that quietly stops matching looks
-exactly like clean code. `tools/check-rules.ts` violates all thirteen on purpose
+exactly like clean code. `tools/check-rules.ts` violates every architecture rule on purpose
 and fails if any stops firing. It caught two real regressions while this was being
 written.
 
@@ -384,7 +384,7 @@ server image is a tsdown bundle; the web image is a static build behind nginx.
   there, so `tools/check-catalog.ts` fails the build when a workspace pins a version
   the catalog already owns.
 - `AGENTS.md` is the agent entry point; `CLAUDE.md` is a symlink to it. It stays
-  under 40 lines and deliberately repeats nothing the linter already enforces.
+  short and deliberately repeats nothing the linter already enforces.
 - Logging is evlog's wide-event model: one event per request. 4xx is recorded at
   warn and 5xx at error, so a mistyped identifier does not page anyone.
 

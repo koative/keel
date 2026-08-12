@@ -38,9 +38,9 @@
 
 **Files:** `README.md`
 
-- [ ] **Step 1:** Confirm the count by running `bun tools/check-rules.ts` and reading its summary line (expected: 20).
-- [ ] **Step 2:** In README.md:49, replace "all thirteen" with the verified count — e.g. "violates all twenty on purpose" — or, if the number is likely to drift again, rephrase to drop the number ("violates every architecture rule on purpose"). Prefer the phrasing that stays true longest; the repo's own check prints the count, so a prose number is inherently drift-prone.
-- [ ] **Step 3:** Commit: `docs(readme): the architecture-rule count matches the checker`.
+- [x] **Step 1:** Confirm the count by running `bun tools/check-rules.ts` and reading its summary line (expected: 20).
+- [x] **Step 2:** In README.md:49, replace "all thirteen" with the verified count — e.g. "violates all twenty on purpose" — or, if the number is likely to drift again, rephrase to drop the number ("violates every architecture rule on purpose"). Prefer the phrasing that stays true longest; the repo's own check prints the count, so a prose number is inherently drift-prone.
+- [x] **Step 3:** Commit: `docs(readme): the architecture-rule count matches the checker`.
 
 ### Task 2: The AGENTS.md length promise
 
