@@ -52,8 +52,12 @@ export async function enqueue(input: EnqueueInput): Promise<EnqueueResult> {
 		.onConflictDoNothing({
 			target: job.dedupeKey,
 			// Repeats the partial index's predicate, which is how Postgres knows
-			// which index arbitrates the conflict.
-			where: sql`${job.status} = 'pending'`,
+			// which index arbitrates the conflict. It has to match
+			// `job_dedupeKey_unsettled_idx` exactly: a predicate Postgres cannot
+			// match to an index is not a silent fallback, it is
+			// `there is no unique or exclusion constraint matching the ON
+			// CONFLICT specification`.
+			where: sql`${job.status} in ('pending', 'running')`,
 		})
 		.returning({ id: job.id });
 

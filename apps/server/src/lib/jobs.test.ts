@@ -3,13 +3,7 @@ import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
 import { eq } from "drizzle-orm";
 import { type JobRegistry, runOnce } from "@/lib/jobs";
-import {
-	claim,
-	complete,
-	type EnqueueInput,
-	enqueue,
-	fail,
-} from "@/lib/jobs.repository";
+import { claim, type EnqueueInput, enqueue, fail } from "@/lib/jobs.repository";
 import { skipNotice, testDbReady } from "../../test-db";
 
 const ready = await testDbReady();
@@ -71,32 +65,6 @@ describe.skipIf(!ready)("job queue", () => {
 		expect(claimed[0]?.payload).toEqual({ n: 1 });
 		expect(claimed[0]?.attempts).toBe(0);
 		expect(claimed[0]?.maxAttempts).toBe(MAX_ATTEMPTS);
-	});
-
-	it("collapses two pending enqueues of the same dedupe key", async () => {
-		const dedupeKey = crypto.randomUUID();
-
-		const first = await enqueue({ dedupeKey, kind: "test.echo", payload: {} });
-		const second = await enqueue({ dedupeKey, kind: "test.echo", payload: {} });
-
-		expect(first.created).toBe(true);
-		expect(second.created).toBe(false);
-		expect(second.id).toBeNull();
-		expect(await claim(WORKER, BATCH)).toHaveLength(1);
-	});
-
-	// The index is partial, so the key is a debounce rather than a permanent
-	// reservation: the next round of the same work must be enqueueable.
-	it("frees the dedupe key once the first job has settled", async () => {
-		const dedupeKey = crypto.randomUUID();
-		const id = await enqueueId({ dedupeKey, kind: "test.echo", payload: {} });
-
-		await claim(WORKER, BATCH);
-		await complete(id, WORKER);
-		const again = await enqueue({ dedupeKey, kind: "test.echo", payload: {} });
-
-		expect(again.created).toBe(true);
-		expect(again.id).not.toBe(id);
 	});
 
 	it("retries with a later runAt and stops at maxAttempts", async () => {

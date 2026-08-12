@@ -58,19 +58,26 @@ export const job = pgTable(
 		index("job_status_runAt_idx").on(table.status, table.runAt),
 		// Partial on purpose, and this is the load-bearing part of the design.
 		//
-		// Restricted to `pending`, the index makes a second enqueue of a key that
-		// is already waiting a no-op: duplicate work collapses into the one row
-		// that has not started yet. Once that job settles — picked up, done or
-		// failed — it leaves the index, and the same key is immediately usable
-		// again for the next round of work.
+		// Restricted to the two unsettled statuses, the index makes a second
+		// enqueue of a key that is already in flight a no-op: duplicate work
+		// collapses into the row that is doing it, whether that row is still
+		// waiting or already running. Only when the job reaches `done` or
+		// `failed` does it leave the index and free the key for the next round
+		// of the same work.
+		//
+		// `running` is inside the predicate deliberately. With `pending` alone
+		// the key was released by `claim` — the same statement that starts the
+		// work — so "resend verification" pressed while the first mail was being
+		// sent produced a second row that ran concurrently, and a keyed
+		// `ai.generate` was paid for twice.
 		//
 		// So one index is both a debounce and a mutex, enforced by Postgres. A
 		// non-partial index would instead permanently burn the key after its
 		// first use, and getting the same behaviour in the application would
 		// need a read-then-write under an advisory lock on every enqueue.
-		uniqueIndex("job_dedupeKey_pending_idx")
+		uniqueIndex("job_dedupeKey_unsettled_idx")
 			.on(table.dedupeKey)
-			.where(sql`${table.status} = 'pending'`),
+			.where(sql`${table.status} in ('pending', 'running')`),
 		// The status vocabulary is enforced by the database rather than only by
 		// TypeScript: the claim and fail statements write it as raw SQL, and a
 		// typo there would otherwise silently strand rows in a state no worker
