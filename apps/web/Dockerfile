@@ -1,7 +1,6 @@
 FROM node:24-slim AS builder
 COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
-ENV SKIP_ENV_VALIDATION=1
 
 COPY . .
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install

@@ -288,7 +288,7 @@ reads as root-relative and resolves to another origin."
 - Consumes: Task 1's schema — a relative value must already validate before this task's end-to-end check can pass.
 - Produces: nothing other code depends on.
 
-- [ ] **Step 1: Confirm the flag is inert before removing it**
+- [x] **Step 1: Confirm the flag is inert before removing it**
 
 ```bash
 cd apps/web && env -u SKIP_ENV_VALIDATION VITE_SERVER_URL=/api bun run build
@@ -296,7 +296,7 @@ cd apps/web && env -u SKIP_ENV_VALIDATION VITE_SERVER_URL=/api bun run build
 
 Expected: the build succeeds. It has always succeeded — `vite build` bundles the module, it does not execute it, so the flag never gated anything on this path. Confirm rather than assume, because `apps/server/Dockerfile` sets the same variable for a real reason and the two must not be conflated.
 
-- [ ] **Step 2: Remove the line**
+- [x] **Step 2: Remove the line**
 
 In `apps/web/Dockerfile`, delete line 4:
 
@@ -306,7 +306,7 @@ ENV SKIP_ENV_VALIDATION=1
 
 Leave every other line untouched. The file should go straight from `WORKDIR /app` to the blank line before `COPY . .`.
 
-- [ ] **Step 3: Prove the image still builds**
+- [x] **Step 3: Prove the image still builds**
 
 ```bash
 docker build -f apps/web/Dockerfile --build-arg VITE_SERVER_URL=/api -t keel-web-probe .
@@ -314,7 +314,7 @@ docker build -f apps/web/Dockerfile --build-arg VITE_SERVER_URL=/api -t keel-web
 
 Run from the repository root — the Dockerfile copies the whole workspace. Expected: the build completes. Then `docker image rm keel-web-probe`.
 
-- [ ] **Step 4: Prove the relative build boots in a browser**
+- [x] **Step 4: Prove the relative build boots in a browser**
 
 This is the check that would have caught the bug, and it is the only one that exercises the real failure.
 
@@ -331,13 +331,13 @@ If the page renders nothing at all with an empty console, a stale service worker
 
 Stop the server with Ctrl-C.
 
-- [ ] **Step 5: Prove the gate is still green**
+- [x] **Step 5: Prove the gate is still green**
 
 ```bash
 bun run check
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/web/Dockerfile
