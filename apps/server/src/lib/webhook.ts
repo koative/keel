@@ -4,9 +4,11 @@
  * The receiver order is fixed, and getting it wrong is the usual way a webhook
  * endpoint fails in production:
  *
- * 1. Verify the signature over the raw request bytes. Nothing else happens
+ * 1. Verify the signature over the raw request bytes, and refuse a delivery
+ *    whose own timestamp is outside the replay window. Nothing else happens
  *    first — an unsigned request must not be able to reach a parser, a query
- *    or a log line that an operator will later read as fact.
+ *    or a log line that an operator will later read as fact, and a request that
+ *    verified last week must not be able to reach any of them twice.
  * 2. Persist the raw payload exactly as received.
  * 3. Enqueue a job (`enqueue` in `./jobs`) referencing that payload.
  * 4. Return 200.
@@ -38,11 +40,82 @@ const ALGORITHM_PREFIX = "sha256=";
  */
 const HEX_DIGEST = /^[0-9a-f]{64}$/i;
 
+/**
+ * How far a delivery's own timestamp may sit from now, in either direction.
+ *
+ * Five minutes, which is what Stripe's own libraries default to and what Slack
+ * documents, and it is chosen from both ends. It has to be wide enough to
+ * survive a provider's retry jitter, a few seconds of NTP drift on either host
+ * and a queue that briefly falls behind — a minute is not, and a receiver that
+ * intermittently 400s teaches its operator to stop reading the alert. It has to
+ * be narrow enough that a captured request is a five-minute liability rather
+ * than a permanent one.
+ *
+ * A constant and not a parameter, and certainly not an environment variable. A
+ * parameter is a knob that gets widened at 02:00 to make a flaky integration
+ * green, and the widened value then lives in a route file nobody reviews as a
+ * security decision. An env key would additionally be this repository making a
+ * deployment decision on somebody's behalf, which is the thing `packages/env`
+ * was refactored to stop doing. If a provider ever genuinely needs more, that is
+ * a deliberate edit here, with a comment, reviewed as what it is.
+ */
+const TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
+ * What a receiver passes as `signedAt` when its provider transports no timestamp
+ * at all — GitHub is the common one, signing the body and nothing else.
+ *
+ * A named value rather than an optional field or a `null`, because opting out of
+ * a replay window must not be reachable by forgetting. This one has to be
+ * imported and spelled out at the call site, so it appears in the diff, in the
+ * review and in a grep for every receiver that has no window. Such a receiver
+ * owes exactly-once by another route: see the contract on `verifySignature`.
+ */
+export const NO_TIMESTAMP = "no-timestamp";
+
+/**
+ * Whether the delivery claims an instant close enough to now.
+ *
+ * Symmetric, because clocks are wrong in both directions. A far-future stamp is
+ * either a host whose clock is ahead — where honouring it would silently extend
+ * every window that follows — or a capture held back until the honest window
+ * closed. `Math.abs` costs nothing and the one-sided spelling admits every
+ * future timestamp there will ever be.
+ *
+ * An unparseable instant arrives here as `NaN` and every comparison against
+ * `NaN` is false, so it is refused by the arithmetic. That is the answer wanted,
+ * and a branch written for it would only be a second way to get it wrong.
+ */
+function withinWindow(signedAt: Date | typeof NO_TIMESTAMP): boolean {
+	if (signedAt === NO_TIMESTAMP) {
+		return true;
+	}
+
+	return Math.abs(Date.now() - signedAt.getTime()) <= TOLERANCE_MS;
+}
+
 export interface SignatureInput {
 	/** The provider's signature header, as read off the request. */
 	header: string | null | undefined;
 	rawBody: ArrayBuffer;
 	secret: string;
+	/**
+	 * The instant the provider says it stamped this delivery, already parsed.
+	 *
+	 * A `Date` and not a raw header value, because providers disagree about
+	 * everything except that they disagree: Stripe puts `t=` inside the signature
+	 * header, Slack and Svix use a separate header, others use a body field, and
+	 * the unit is sometimes seconds and sometimes milliseconds. Parsing that here
+	 * would mean either guessing or learning one provider's grammar, and the
+	 * route that already knows its own header name is the place that knows.
+	 *
+	 * The invariant the caller MUST hold: this instant is parsed from the same
+	 * bytes it passes as `signedPrefix`. That is what makes the timestamp
+	 * authenticated rather than advisory — relabelling a stale capture then moves
+	 * the prefix, and the digest stops matching. A caller that reads the instant
+	 * from one place and prefixes another has a window an attacker can slide.
+	 */
+	signedAt: Date | typeof NO_TIMESTAMP;
 	/**
 	 * Bytes the provider hashes in **front** of the body, verbatim as it spells
 	 * them on the wire — Stripe's `${unixSeconds}.`, Slack's `v0:${unixSeconds}:`
@@ -93,6 +166,7 @@ export function verifySignature({
 	header,
 	rawBody,
 	secret,
+	signedAt,
 	signedPrefix,
 }: SignatureInput): boolean {
 	if (!header) {
@@ -115,8 +189,20 @@ export function verifySignature({
 		.update(Buffer.from(rawBody))
 		.digest("hex");
 
+	// Both verdicts are computed before either is looked at, and this is not
+	// style. `&&` short-circuits, so `matches && withinWindow(...)` would make
+	// the function's running time depend on whether the digest matched — the
+	// coarse oracle `safeEquals` exists to deny — and `withinWindow(...) &&
+	// safeEquals(...)` would make operand order a security property that no
+	// assertion in the suite can catch. Two consts and one combine at the end
+	// keeps the property local and visible. The cost when a delivery is stale is
+	// one SHA-256 over a body the request body limit already bounds.
+	//
 	// Hex has two spellings and `digest("hex")` only produces the lower one.
 	// Normalising accepts a provider that upper-cases without weakening the
 	// comparison, which the shape check above has already length-bounded.
-	return safeEquals(supplied.toLowerCase(), expected);
+	const fresh = withinWindow(signedAt);
+	const matches = safeEquals(supplied.toLowerCase(), expected);
+
+	return fresh && matches;
 }

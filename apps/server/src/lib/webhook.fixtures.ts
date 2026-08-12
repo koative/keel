@@ -57,6 +57,11 @@ export interface DeliveryOptions {
 /**
  * A whole delivery as a provider would put it on the wire.
  *
+ * `signedAt` and `signedPrefix` are derived from the same instant, which is the
+ * invariant a real receiver has to maintain by hand: the instant it acts on must
+ * be parsed from the bytes it puts in the prefix. A fixture that let the two
+ * drift would let a suite pass while proving nothing.
+ *
  * `options.secret` is the *signer's* key while the returned `secret` is always
  * the receiver's, because "signed with somebody else's key" is a case worth
  * expressing in one argument.
@@ -73,6 +78,7 @@ export function delivery(options: DeliveryOptions = {}): SignatureInput {
 			.digest("hex"),
 		rawBody: bytes(payload),
 		secret: SECRET,
+		signedAt: at,
 		signedPrefix: prefix,
 	};
 }
