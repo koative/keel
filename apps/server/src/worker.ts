@@ -192,6 +192,11 @@ async function shutdown(signal: string): Promise<void> {
 
 	clearTimeout(deadline);
 	process.stdout.write("[worker] drained\n");
+
+	// Only the clean path flushes: the deadline and drain-failure exits exist
+	// because the process must leave now, and awaiting a flush there would
+	// defeat the deadline's purpose.
+	await new Promise<void>((resolve) => process.stdout.write("", resolve));
 	process.exit(0);
 }
 

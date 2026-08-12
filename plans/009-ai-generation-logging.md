@@ -58,13 +58,13 @@
 
 **Files:** `apps/server/src/worker.ts` (the clean-exit path)
 
-- [ ] **Step 1:** Before `process.exit(0)` at the clean-exit point (`:193`), await a stdout flush. The portable form that does not hold the event loop hostage:
+- [x] **Step 1:** Before `process.exit(0)` at the clean-exit point (`:193`), await a stdout flush. The portable form that does not hold the event loop hostage:
   ```ts
   await new Promise<void>((resolve) => process.stdout.write("", resolve));
   ```
   Place it after the drain completes and before the exit call. The deadline and drain-failure exits (`:177`, `:188`) keep their current behavior — a hard deadline that awaits a flush would defeat the deadline's purpose — but add a brief comment noting why only the clean path flushes.
-- [ ] **Step 2:** Smoke-run the worker briefly in development (`cd apps/server && bun src/worker.ts` with a timeout) to confirm it still boots and the clean shutdown path executes (a `[worker]` shutdown line appears and the process exits 0).
-- [ ] **Step 3:** Commit: `fix(worker): flush stdout before the clean exit`.
+- [x] **Step 2:** Smoke-run the worker briefly in development (`cd apps/server && bun src/worker.ts` with a timeout) to confirm it still boots and the clean shutdown path executes (a `[worker]` shutdown line appears and the process exits 0).
+- [x] **Step 3:** Commit: `fix(worker): flush stdout before the clean exit`.
 
 ## Done when
 
