@@ -34,8 +34,8 @@
 
 **Files:** `apps/server/src/modules/projects/internal/projects.routes.ts`
 
-- [ ] **Step 1:** Read the internal routes file and the v1 module doc comment (`public/projects.v1.routes.ts:27-29`) to match the voice.
-- [ ] **Step 2:** Add a short comment (2-4 lines) at the top of the internal route chain or above the handler list, in the repo's voice, e.g.:
+- [x] **Step 1:** Read the internal routes file and the v1 module doc comment (`public/projects.v1.routes.ts:27-29`) to match the voice.
+- [x] **Step 2:** Add a short comment (2-4 lines) at the top of the internal route chain or above the handler list, in the repo's voice, e.g.:
 
   ```ts
   // No PATCH/PUT here on purpose: nothing in the web app edits a project yet,
@@ -46,8 +46,8 @@
   ```
 
   Match the actual wording style of the file — read the surrounding comments first and do not introduce a second comment voice.
-- [ ] **Step 3:** Run the module's tests to prove nothing broke (comments only, but the gate is cheap): `cd apps/server && bun test src/modules/projects/...` with explicit paths.
-- [ ] **Step 4:** Commit: `docs(projects): the internal surface explains its absent update`.
+- [x] **Step 3:** Run the module's tests to prove nothing broke (comments only, but the gate is cheap): `cd apps/server && bun test src/modules/projects/...` with explicit paths.
+- [x] **Step 4:** Commit: `docs(projects): the internal surface explains its absent update`.
 
 ## Done when
 
