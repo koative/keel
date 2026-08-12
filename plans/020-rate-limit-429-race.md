@@ -36,11 +36,13 @@
 
 **Files:** `apps/server/src/lib/rate-limit.test.ts`
 
-- [ ] **Step 1:** Read the whole suite to see how the test app and the actor key for the write bucket are constructed, and what `primeBucket`'s callers look like.
-- [ ] **Step 2:** Rewrite the budget-spend loop: prime the write bucket to `1` token, make **one** request, assert the 429 path (`remaining: 0`, `Retry-After: "2"`, `TOO_MANY_REQUESTS`). The refill can only have added a token if a whole second passed between the prime and the assertion — which would make `remaining` at most 1, and the existing `toBe(0)` assertion on a primed-to-1 spend is exact because the spend consumes the only token. If the suite already has a dedicated-bucket 429 test that does exactly this, reuse its shape rather than duplicating.
-- [ ] **Step 3:** If the serial loop tested something the primed test does not (e.g. that every request up to the budget succeeds), keep that coverage but make its assertions refill-proof: assert `remaining <= 1` rather than exactly 0, or prime the bucket to the full budget first so the loop's consumption is exact again. State in a comment which choice you made and why.
-- [ ] **Step 4:** Run the suite: `cd apps/server && bun test src/lib/rate-limit.test.ts` — green, several times in a row.
-- [ ] **Step 5:** Commit: `test(rate-limit): the 429 assertion cannot race the refill`.
+- [x] **Step 1:** Read the whole suite to see how the test app and the actor key for the write bucket are constructed, and what `primeBucket`'s callers look like.
+- [x] **Step 2:** Rewrite the budget-spend loop: prime the write bucket to `1` token, make **one** request, assert the 429 path (`remaining: 0`, `Retry-After: "2"`, `TOO_MANY_REQUESTS`). The refill can only have added a token if a whole second passed between the prime and the assertion — which would make `remaining` at most 1, and the existing `toBe(0)` assertion on a primed-to-1 spend is exact because the spend consumes the only token. If the suite already has a dedicated-bucket 429 test that does exactly this, reuse its shape rather than duplicating.
+  > Deviation: primed to **0**, not 1 — the limiter refuses below zero (`allowed = tokens >= 0`), so a primed 1 is spent to an *allowed* 0. Zero is the level the suite's other refusal tests already prime to.
+- [x] **Step 3:** If the serial loop tested something the primed test does not (e.g. that every request up to the budget succeeds), keep that coverage but make its assertions refill-proof: assert `remaining <= 1` rather than exactly 0, or prime the bucket to the full budget first so the loop's consumption is exact again. State in a comment which choice you made and why.
+  > Choice: kept the whole-budget serial loop as its own test asserting only `status 200` (refill-proof — refills can only ever add tokens, and every request up to the budget still succeeds); the "spends the last token → allowed at exactly 0" boundary the loop used to assert is preserved as a separate primed-to-1 test. `remaining <= 1` and prime-to-full are both still racy under multi-second gaps, so neither was used.
+- [x] **Step 4:** Run the suite: `cd apps/server && bun test src/lib/rate-limit.test.ts` — green, several times in a row.
+- [x] **Step 5:** Commit: `test(rate-limit): the 429 assertion cannot race the refill`.
 
 ### Task 2 (optional, only if the audit's concurrent angle is genuinely uncovered)
 

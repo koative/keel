@@ -103,21 +103,19 @@ describe.skipIf(!ready)("rate limit middleware", () => {
 		expect(remainingOf(second)).toBeGreaterThanOrEqual(READ_BUDGET - 2);
 	});
 
-	// The whole budget, spent for real, rather than a primed row: this is the test
-	// that would catch the capacity being wired to the wrong env key. Safe against
-	// the refill because the write bucket earns one token a second and the loop is
-	// a few hundred sequential single-statement queries' worth of milliseconds.
+	// Primed rather than spent for real: spending the budget only reaches the
+	// refusal if the serial loop finishes before the bucket earns a token back,
+	// which is the sub-second property that used to flake this test. The spend
+	// here lands at -1 — the refusal — and a refill cannot change that unless a
+	// whole second passed since the prime, which would only make the request
+	// allowed at remaining 1 instead.
 	it("refuses with a 429 once the budget is spent", async () => {
-		const app = buildApp(freshActor());
-
-		let last = await app.request("/things", { method: "POST" });
-		for (let spent = 1; spent < WRITE_BUDGET; spent += 1) {
-			// biome-ignore lint/performance/noAwaitInLoops: a burst has to be serial to be countable — issued in parallel these would interleave with the refill and the request that tips the bucket over would no longer be a known one.
-			last = await app.request("/things", { method: "POST" });
-		}
-
-		expect(last.status).toBe(200);
-		expect(remainingOf(last)).toBe(0);
+		const actorId = freshActor();
+		const app = buildApp(actorId);
+		// Empty, not one token: the limiter refuses below zero, so a primed 1
+		// would still be spent by this request. Zero is the level the refusal
+		// tests elsewhere in this suite prime to.
+		await primeBucket(`${actorId}|write`, 0);
 
 		const refused = await app.request("/things", { method: "POST" });
 		const body = (await refused.json()) as { error: { code: string } };
@@ -130,6 +128,39 @@ describe.skipIf(!ready)("rate limit middleware", () => {
 		expect(refused.headers.get("Retry-After")).toBe("2");
 		expect(refused.headers.get("RateLimit-Limit")).toBe(String(WRITE_BUDGET));
 		expect(remainingOf(refused)).toBe(0);
+	});
+
+	// The mirror image of the refusal above: a bucket that lands on exactly zero
+	// still allows, because `allowed` is tokens >= 0. Primed to one so the count
+	// cannot move between setup and assertion, as it could in a spent loop.
+	it("allows the request that spends the last token", async () => {
+		const actorId = freshActor();
+		const app = buildApp(actorId);
+		await primeBucket(`${actorId}|write`, 1);
+
+		const last = await app.request("/things", { method: "POST" });
+
+		expect(last.status).toBe(200);
+		expect(remainingOf(last)).toBe(0);
+	});
+
+	// The whole budget, spent for real rather than primed: this is the test that
+	// would catch the capacity being wired to the wrong env key, or an off-by-one
+	// in the fresh bucket's starting level. `remaining` is deliberately not
+	// asserted — a slow runner earns a token back while the loop runs, which is
+	// the race the 429 test above was freed from — so the exact counts live in
+	// the primed tests. What the loop still says that no primed test can is that
+	// every request up to the budget succeeds, and that survives any refill.
+	it("lets a client spend the whole budget as a burst", async () => {
+		const app = buildApp(freshActor());
+
+		let last = await app.request("/things", { method: "POST" });
+		for (let spent = 1; spent < WRITE_BUDGET; spent += 1) {
+			// biome-ignore lint/performance/noAwaitInLoops: a burst has to be serial to be countable — issued in parallel these would interleave with the refill and the request that tips the bucket over would no longer be a known one.
+			last = await app.request("/things", { method: "POST" });
+		}
+
+		expect(last.status).toBe(200);
 	});
 
 	it("draws reads and writes from separate buckets", async () => {
