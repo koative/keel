@@ -100,7 +100,7 @@ worth spelling out, because the wrong answer is invisible on a laptop.
 | `TRUSTED_IP_HEADER=x-forwarded-for` + `TRUSTED_PROXIES` | Better Auth resolves the client IP from headers only, and reads `x-forwarded-for` by default whether or not you configure one. Unset on a directly reachable app, a caller sends its own address and gets a private bucket, so the 10-per-60s limit on `/sign-in/email` stops applying; set without a proxy list, the same forgery works through the header you named; behind a proxy that appends, the header holds two addresses, resolves to nothing, and your whole user base shares one bucket per path. None of the three is a rate limiter, so the server refuses to start on `NODE_ENV=production` without the header and refuses the header without the proxy list. |
 | `bun run db:migrate` in the deploy | `db:push` diffs the live database against the schema and applies what it decides is needed, including dropping a column. That is a development tool. `tools/check-migrations.ts` fails the build when the two drift. |
 | `BETTER_AUTH_SECRET` | The signing key of a deployment is not something a repository hands out. |
-| `MAIL_DRIVER=resend` + `RESEND_API_KEY` + `MAIL_FROM` | `log` writes every message to stdout and sends nothing. That is right on a laptop and silent data loss on a server: verification and password reset both stop working while the deployment looks healthy. `MAIL_FROM` has to be an address on a domain verified with Resend — the sandbox sender `.env.example` ships reaches nobody but the account owner, so `resend` refuses to start on it. |
+| `MAIL_DRIVER=resend` + `RESEND_API_KEY` + `MAIL_FROM` | `log` writes every message to stdout and sends nothing. That is right on a laptop and two failures on a server: verification and password reset stop working, and every one-time link they printed is now in the container logs. So the worker refuses `log` when `NODE_ENV=production`, with no opt-out key. `MAIL_FROM` has to be an address on a domain verified with Resend — the sandbox sender `.env.example` ships reaches nobody but the account owner, so `resend` refuses to start on it. |
 
 `SIGTERM` drains in-flight requests, closes the connection pool, then exits — so a
 rolling deploy does not drop work. `/health` is liveness and `/ready` checks
@@ -281,6 +281,17 @@ than a deployment that looks healthy until a user reports the mail never arrived
 `MAIL_FROM` is guarded the same way: `resend` refuses to start on Resend's sandbox
 sender, which delivers only to the account owner, so a verified domain has to
 replace it.
+
+**`log` is refused when `NODE_ENV=production`, and that is the third startup
+guard.** The banner is honest about not sending, but the dump under it is the
+message, and a verification or reset message is a one-time link — a bearer
+credential. Printing it is the entire point on a laptop, where it is how a
+contributor opens the link; on a server it writes that credential into logs that
+are retained, shipped and read far more widely than the database. There is no
+opt-out key: a key whose only job is to disarm a guard is a key that gets copied
+into production. A host that reports `production` and should not mail real people
+uses `resend` with its own key and its own verified domain, which is also the only
+way to learn whether delivery works before a user does.
 
 **Every send goes through the queue.** A Better Auth hook enqueues a `mail.send`
 job and returns; the worker calls the provider. Both halves of that matter: a

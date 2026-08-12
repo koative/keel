@@ -339,7 +339,7 @@ variable instead of starting to poll."
 - Consumes: the guard and its exact error text from Task 1. Do not start this task before Task 1 is committed — every sentence below asserts a refusal that must already exist.
 - Produces: nothing other code depends on.
 
-- [ ] **Step 1: Say it where the value is chosen**
+- [x] **Step 1: Say it where the value is chosen**
 
 `.env.example:74` is the line that puts `log` into a deployment. Replace lines 69-74:
 
@@ -371,7 +371,7 @@ MAIL_DRIVER=log
 
 The value stays `log`. This file sits at `NODE_ENV=development` (line 61), where `log` is right and required for `bun run dev` to work.
 
-- [ ] **Step 2: Say it where the value is required**
+- [x] **Step 2: Say it where the value is required**
 
 In `docker-compose.prod.yml`, replace lines 46-49:
 
@@ -396,7 +396,7 @@ with:
 
 No key is added or removed — plan 019 owns the `x-app-env` key list. The `:?` text now matches the `LOG_DRAIN` line above it (line 45), which already reads "and on a server it is otlp".
 
-- [ ] **Step 3: Say it in the production checklist**
+- [x] **Step 3: Say it in the production checklist**
 
 `README.md:103` currently frames `log` in production as delivery failure only. Replace that table row:
 
@@ -412,7 +412,7 @@ with:
 
 Leave every count in this file alone — plan 021 owns those.
 
-- [ ] **Step 4: Say it in the section that explains the adapter**
+- [x] **Step 4: Say it in the section that explains the adapter**
 
 In `README.md`, the mail paragraph ends at line 283 with "…so a verified domain has to replace it." Insert a new paragraph immediately after it, before the blank line preceding `**Every send goes through the queue.**`:
 
@@ -429,7 +429,7 @@ uses `resend` with its own key and its own verified domain, which is also the on
 way to learn whether delivery works before a user does.
 ```
 
-- [ ] **Step 5: Prove the compose file still parses**
+- [x] **Step 5: Prove the compose file still parses**
 
 ```bash
 docker compose -f docker-compose.prod.yml config >/dev/null
@@ -437,7 +437,7 @@ docker compose -f docker-compose.prod.yml config >/dev/null
 
 Expected: it fails naming a *missing variable*, not a YAML error — with no deploy environment exported, the first unsatisfied `:?` key is reported. `error while interpolating` on a key name is the pass condition here; a parser error mentioning a line number is not. If Docker is unavailable on the machine, skip this step and rely on Step 6.
 
-- [ ] **Step 6: Prove the whole gate is green**
+- [x] **Step 6: Prove the whole gate is green**
 
 ```bash
 bun run check
@@ -445,7 +445,7 @@ bun run check
 
 Expected: every task successful, unchanged from Task 1 — no source file was touched.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add .env.example docker-compose.prod.yml README.md

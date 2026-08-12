@@ -49,10 +49,13 @@ x-app-env: &app-env
   DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:?DATABASE_POOL_MAX is required}
   DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
   LOG_DRAIN: ${LOG_DRAIN:?LOG_DRAIN is required, and on a server it is otlp}
-  # `resend` also needs RESEND_API_KEY, and a MAIL_FROM on a domain verified with
-  # Resend — the sandbox sender in .env.example reaches nobody but the account
-  # owner, and the server refuses to start on it.
-  MAIL_DRIVER: ${MAIL_DRIVER:?MAIL_DRIVER is required}
+  # `resend` is the only value that boots here. This file pins NODE_ENV=production
+  # below, and the worker refuses `log` there — it prints every verification and
+  # reset link into the json-file logs this file then retains. `resend` also needs
+  # RESEND_API_KEY, and a MAIL_FROM on a domain verified with Resend — the sandbox
+  # sender in .env.example reaches nobody but the account owner, and the server
+  # refuses to start on it too.
+  MAIL_DRIVER: ${MAIL_DRIVER:?MAIL_DRIVER is required, and on a server it is resend}
   MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
   NODE_ENV: production
   OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
