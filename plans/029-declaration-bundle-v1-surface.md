@@ -50,9 +50,9 @@
 
 **Files:** `.github/workflows/ci.yml` (or the root check script — pick whichever is the smaller, more honest home)
 
-- [ ] **Step 1:** Add a CI step (or a `tools/` script wired into `bun run check` if the repo prefers that — match the existing pattern of `check-*` tools) that typechecks `types/app.d.mts` with `skipLibCheck: false`. If it belongs in CI, add it after the `bun run check` step with a comment: the bundle must stay self-contained even though the base tsconfig suppresses it.
-- [ ] **Step 2:** Prove the gate fires: temporarily reintroduce a `/v1` branch into the type source (revert the entry change in memory), run the gate, confirm it fails naming the free identifiers, then restore.
-- [ ] **Step 3:** Commit: `ci: the declaration bundle must typecheck without skipLibCheck`.
+- [x] **Step 1:** Add a CI step (or a `tools/` script wired into `bun run check` if the repo prefers that — match the existing pattern of `check-*` tools) that typechecks `types/app.d.mts` with `skipLibCheck: false`. If it belongs in CI, add it after the `bun run check` step with a comment: the bundle must stay self-contained even though the base tsconfig suppresses it.
+- [x] **Step 2:** Prove the gate fires: temporarily reintroduce a `/v1` branch into the type source (revert the entry change in memory), run the gate, confirm it fails naming the free identifiers, then restore.
+- [x] **Step 3:** Commit: `ci: the declaration bundle must typecheck without skipLibCheck`.
 
 ## Done when
 
