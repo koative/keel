@@ -66,7 +66,9 @@ export interface DeliveryOptions {
  * the receiver's, because "signed with somebody else's key" is a case worth
  * expressing in one argument.
  */
-export function delivery(options: DeliveryOptions = {}): SignatureInput {
+export function delivery(options: DeliveryOptions = {}): SignatureInput & {
+	header: string;
+} {
 	const at = options.at ?? new Date();
 	const payload = options.payload ?? DELIVERED;
 	const prefix = signedPrefix(at);
