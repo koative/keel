@@ -37,21 +37,10 @@
 
 **Files:** `packages/auth/src/index.ts`
 
-- [ ] **Step 1:** Read the installed better-auth session options (types or dist) to confirm the option names and units (`expiresIn` in seconds) and `updateAge`'s semantics for 1.6.25.
-- [ ] **Step 2:** Add a `session` block to `createAuth` next to the other pinned knobs, with a comment stating the choice and why. Recommended (audit's sketch): one day with a sliding window:
-  ```ts
-  // One day, sliding: a stolen cookie is a one-day liability rather than a
-  // seven-day one, and activity extends the session so a working user is not
-  // logged out mid-day. Deliberately a constant, not an env key — a lifetime
-  // knob that gets widened to stop complaints stops meaning anything.
-  session: {
-    expiresIn: 60 * 60 * 24,
-    updateAge: 60 * 60 * 24,
-  },
-  ```
-  Verify `updateAge`'s unit (Better Auth uses seconds too) before committing; if the installed version's semantics differ, choose the smallest value that keeps a working session alive through a normal day and say so in the comment.
-- [ ] **Step 3:** Run the auth package tests if any exist (`cd packages/auth && bun test` — explicit paths) and the server typecheck. The lead runs the full gate.
-- [ ] **Step 4:** Commit: `feat(auth): a session is a one-day decision, not a seven-day default`.
+- [x] **Step 1:** Read the installed better-auth session options (types or dist) to confirm the option names and units (`expiresIn` in seconds) and `updateAge`'s semantics for 1.6.25. Verified against `packages/auth/node_modules/better-auth/dist/context/create-context.mjs` (defaults `expiresIn: 3600*24*7`, `updateAge: 1440*60` — seconds) and `dist/api/routes/session.mjs:207` (`expiresAt - expiresIn*1e3 + updateAge*1e3 <= now` — refresh fires once the session is `updateAge` old), plus the `@better-auth/core` `init-options.d.mts` type docs.
+- [x] **Step 2:** Add a `session` block to `createAuth` next to the other pinned knobs, with a comment stating the choice and why. **Deviation, sanctioned by the plan:** the sketch's `updateAge: 60 * 60 * 24` equals `expiresIn`, which the installed semantics make a *no-op* sliding window — the refresh condition only holds at the instant of expiry, so the session would never be extended. Chose `updateAge: 60 * 60` (one hour): strictly smaller than `expiresIn` so the session genuinely slides, keeps a working session alive through a normal day (any session older than an hour is renewed by the next request), and caps the renewal write at once per session per hour. The comment explains all of this and cites the installed `session.mjs` condition.
+- [x] **Step 3:** Run the auth package tests if any exist (`cd packages/auth && bun test` — explicit paths) and the server typecheck. The lead runs the full gate. No tests exist in `packages/auth`; `bun run check-types` (tsc --noEmit) is green.
+- [x] **Step 4:** Commit: `feat(auth): a session is a one-day decision, not a seven-day default`.
 
 ### Task 2: The comment that cited the old default
 

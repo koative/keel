@@ -296,6 +296,31 @@ export function createAuth() {
 			window: 10,
 		},
 		secret: env.BETTER_AUTH_SECRET,
+		/**
+		 * One day, sliding — a decision instead of the inherited seven-day default.
+		 *
+		 * `expiresIn` (seconds) is the session's maximum lifetime: without further
+		 * refresh a session dies 24 hours after it was last extended, so a stolen
+		 * cookie is a one-day liability rather than a seven-day one.
+		 *
+		 * `updateAge` (seconds) is the sliding threshold, not a second lifetime:
+		 * Better Auth refreshes the session — extending it to a full `expiresIn`
+		 * from now — once it is `updateAge` old and the user is active. It must be
+		 * strictly smaller than `expiresIn`; at equality the refresh condition
+		 * (`expiresAt - expiresIn + updateAge <= now`, from the installed 1.6.25
+		 * `session.mjs`) holds only at the instant of expiry, which the
+		 * expired-session check already handles, so the session would never slide.
+		 * One hour keeps a working session alive through a normal day — any session
+		 * older than an hour is renewed by the next request — while capping the
+		 * renewal write at once per session per hour.
+		 *
+		 * Deliberately a constant, not an env key — a lifetime knob that gets
+		 * widened to stop complaints stops meaning anything.
+		 */
+		session: {
+			expiresIn: 60 * 60 * 24,
+			updateAge: 60 * 60,
+		},
 		trustedOrigins: [env.CORS_ORIGIN],
 	});
 }
