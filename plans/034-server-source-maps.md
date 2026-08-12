@@ -33,11 +33,11 @@
 
 **Files:** `apps/server/tsdown.config.ts`
 
-- [ ] **Step 1:** Add `sourcemap: true` to the tsdown config (check tsdown's option shape — it may be a top-level `sourcemap` boolean or a build option; verify against the installed tsdown version's types).
-- [ ] **Step 2:** Decide map file placement: `true` emits `.map` files beside the bundles in `dist/`. Check whether `apps/server/Dockerfile` copies `dist/` wholesale (maps ship in the image — acceptable for a starter, but look at the Dockerfile's `.dockerignore`/`COPY` to see if `*.map` would be excluded; if there is a `.dockerignore`, decide whether maps should ship or be excluded and say so in the commit message). Do not add an exclusion unless there is already a pattern for it.
-- [ ] **Step 3:** Rebuild: `cd apps/server && bun run build` (the script that runs tsdown). Confirm `dist/*.map` files appear.
-- [ ] **Step 4:** Prove a stack resolves: run one of the built entrypoints (e.g. `bun dist/worker.mjs` briefly with a `LOG_DRAIN=fs` or a forced error path if one is cheap; otherwise state in the commit what was verified — files exist, build green). If the repo has an evlog drain test that inspects stacks, run it.
-- [ ] **Step 5:** Commit: `feat(server): production stacks keep their file and line`.
+- [x] **Step 1:** Add `sourcemap: true` to the tsdown config (check tsdown's option shape — it may be a top-level `sourcemap` boolean or a build option; verify against the installed tsdown version's types).
+- [x] **Step 2:** Decide map file placement: `true` emits `.map` files beside the bundles in `dist/`. Check whether `apps/server/Dockerfile` copies `dist/` wholesale (maps ship in the image — acceptable for a starter, but look at the Dockerfile's `.dockerignore`/`COPY` to see if `*.map` would be excluded; if there is a `.dockerignore`, decide whether maps should ship or be excluded and say so in the commit message). Do not add an exclusion unless there is already a pattern for it.
+- [x] **Step 3:** Rebuild: `cd apps/server && bun run build` (the script that runs tsdown). Confirm `dist/*.map` files appear.
+- [x] **Step 4:** Prove a stack resolves: run one of the built entrypoints (e.g. `bun dist/worker.mjs` briefly with a `LOG_DRAIN=fs` or a forced error path if one is cheap; otherwise state in the commit what was verified — files exist, build green). If the repo has an evlog drain test that inspects stacks, run it.
+- [x] **Step 5:** Commit: `feat(server): production stacks keep their file and line`.
 
 ## Done when
 

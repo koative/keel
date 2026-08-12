@@ -34,4 +34,12 @@ export default defineConfig({
 	format: "esm",
 	noExternal: [/@keel\/.*/],
 	outDir: "./dist",
+	// Emit .map files beside the bundles so wide-event stack traces (evlog,
+	// LOG_DRAIN=otlp) keep their source file/line instead of pointing at line 1
+	// of a bundle column. The output stays unminified — readability is a
+	// deliberate choice for a starter — so the maps are pure attribution, not
+	// a decompiler's key. "hidden" would skip the sourceMappingURL comment but
+	// buys nothing here: dist is not a published artifact and the comment is
+	// what makes `bun dist/index.mjs` resolve sources in tools that read them.
+	sourcemap: true,
 });
