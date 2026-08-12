@@ -185,6 +185,8 @@ describe.skipIf(!ready)("stranded job reaper", () => {
 		const dedupeKey = crypto.randomUUID();
 		await strand({ dedupeKey, lockedAt: hoursAgo(3) });
 
-		await expect(strand({ dedupeKey, lockedAt: hoursAgo(2) })).rejects.toThrow();
+		await expect(
+			strand({ dedupeKey, lockedAt: hoursAgo(2) })
+		).rejects.toThrow();
 	});
 });

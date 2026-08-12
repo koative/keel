@@ -8,6 +8,7 @@ const VERIFIED_FROM = "Keel <hello@keel.test>";
 const MISSING_KEY = /RESEND_API_KEY/;
 const SANDBOX_SENDER = /MAIL_FROM/;
 const LOG_IN_PRODUCTION = /NODE_ENV=production/;
+const RESEND_REMEDY = /set MAIL_DRIVER to resend/;
 
 // `development` is what `.env.example` ships, so this is the shape a fresh
 // checkout resolves and the baseline every case here departs from by one field.
@@ -75,9 +76,9 @@ describe("resolveMailConfig", () => {
 		// credential store nobody chose. The deployment that does this looks
 		// completely healthy, which is why it has to be refused rather than warned
 		// about.
-		expect(() => resolveMailConfig(envWith({ NODE_ENV: "production" }))).toThrow(
-			LOG_IN_PRODUCTION
-		);
+		expect(() =>
+			resolveMailConfig(envWith({ NODE_ENV: "production" }))
+		).toThrow(LOG_IN_PRODUCTION);
 	});
 
 	it.each(["development", "test"] as const)(
@@ -110,8 +111,8 @@ describe("resolveMailConfig", () => {
 		// The message is the whole interface of a startup refusal: whoever reads it
 		// is holding a crashed worker and a compose file, and has to know both which
 		// variable is wrong and what to write instead.
-		expect(() => resolveMailConfig(envWith({ NODE_ENV: "production" }))).toThrow(
-			/set MAIL_DRIVER to resend/
-		);
+		expect(() =>
+			resolveMailConfig(envWith({ NODE_ENV: "production" }))
+		).toThrow(RESEND_REMEDY);
 	});
 });

@@ -11,9 +11,9 @@ function envWith(overrides: Partial<ClientIpEnv>): ClientIpEnv {
 
 describe("resolveClientIpPosture", () => {
 	it("refuses a production boot with no trusted header", () => {
-		expect(() => resolveClientIpPosture(envWith({ NODE_ENV: "production" }))).toThrow(
-			MISSING_HEADER
-		);
+		expect(() =>
+			resolveClientIpPosture(envWith({ NODE_ENV: "production" }))
+		).toThrow(MISSING_HEADER);
 	});
 
 	it("treats an empty header as absent", () => {

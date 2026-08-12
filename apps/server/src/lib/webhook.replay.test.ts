@@ -81,15 +81,15 @@ describe("verifySignature replay window", () => {
 	 * is far smaller than the minute a wrong constant would move.
 	 */
 	it("verifies at the edge of the window and refuses just past it", () => {
-		expect(
-			verifySignature(delivery({ at: ago(5 * MINUTE - 1000) }))
-		).toBe(true);
-		expect(
-			verifySignature(delivery({ at: ago(5 * MINUTE + 1000) }))
-		).toBe(false);
-		expect(
-			verifySignature(delivery({ at: ahead(5 * MINUTE + 1000) }))
-		).toBe(false);
+		expect(verifySignature(delivery({ at: ago(5 * MINUTE - 1000) }))).toBe(
+			true
+		);
+		expect(verifySignature(delivery({ at: ago(5 * MINUTE + 1000) }))).toBe(
+			false
+		);
+		expect(verifySignature(delivery({ at: ahead(5 * MINUTE + 1000) }))).toBe(
+			false
+		);
 	});
 
 	/**
