@@ -335,7 +335,7 @@ as \"\"; and a deploy environment with no AI or storage keys still renders."
 - Consumes: Task 1's completed `x-app-env` block. Run before Task 1 this script reports eleven problems, which is correct but makes it impossible to land green.
 - Produces: `bun tools/check-env.ts`, exit 0 with a one-line summary or exit 1 with one line per problem. Nothing imports it.
 
-- [ ] **Step 1: Decide how to read the schema, and why not to import it**
+- [x] **Step 1: Decide how to read the schema, and why not to import it**
 
 `packages/env/src/server.ts:26` calls `createEnv` at module scope, which validates the whole server environment. Importing it from a check that CI runs without `apps/server/.env` throws before the script sees a single key name. So the schema is read as text.
 
@@ -348,7 +348,7 @@ grep -cE '\.optional\(\)' packages/env/src/server.ts
 
 Expected: `31` and `16`.
 
-- [ ] **Step 2: Decide how to read the compose file, and confirm no YAML library exists**
+- [x] **Step 2: Decide how to read the compose file, and confirm no YAML library exists**
 
 ```bash
 grep -rn '"yaml"\|"js-yaml"' --include=package.json apps packages package.json || echo "no manifest declares one"
@@ -359,7 +359,7 @@ Expected: `no manifest declares one`, then `├── js-yaml@4.3.1` and `├─
 
 So the block is parsed by hand, which is proportionate: `x-app-env` is a flat map of scalars, indented two spaces, with no nesting, no lists and no anchors of its own. Reading it is "take the lines after `x-app-env:` until the next line that starts at column 0".
 
-- [ ] **Step 3: Write the script**
+- [x] **Step 3: Write the script**
 
 Create `tools/check-env.ts`:
 
@@ -569,7 +569,7 @@ Three notes on choices a reviewer will ask about:
 - **The reverse check earns its five lines.** A forward-only check passes a compose file that says `STORAGE_REGIONS`, because the typo is not a schema key and the real key looks absent for an unrelated reason. Checking both directions reports the typo as a typo.
 - **The `declared.size === 0 || forwarded.size === 0` bail-out is the script guarding itself.** Both parsers are regexes over a file shape. If either file is reformatted past what they match, a silent "everything is fine" is the worst outcome; refusing to run is the right one.
 
-- [ ] **Step 4: Run it against the fixed tree**
+- [x] **Step 4: Run it against the fixed tree**
 
 ```bash
 bun tools/check-env.ts
@@ -583,7 +583,7 @@ check-env: 31 schema keys documented in .env.example and forwarded by docker-com
 
 If it reports eleven problems naming `AI_API_KEY` and the `STORAGE_*` keys, Task 1 is not applied — go back and apply it.
 
-- [ ] **Step 5: Prove it actually fires, in all four directions**
+- [x] **Step 5: Prove it actually fires, in all four directions**
 
 A check nobody has seen fail is not a check — the reasoning `tools/check-rules.ts:4-16` was written around. Break the tree four ways and put it back each time:
 
@@ -654,7 +654,7 @@ rm -f /tmp/compose.bak /tmp/example.bak
 
 Expected: only `package.json` and the new `tools/check-env.ts` differ once Step 6 has run — at this point in the task, nothing at all — and the script prints its 31-key summary.
 
-- [ ] **Step 6: Wire it into the gate**
+- [x] **Step 6: Wire it into the gate**
 
 In `package.json`, replace the `check` script on line 49. Before:
 
@@ -670,7 +670,7 @@ After:
 
 Alphabetical among the `tools/check-*` scripts, which is the order they are already in.
 
-- [ ] **Step 7: Prove the whole gate is green**
+- [x] **Step 7: Prove the whole gate is green**
 
 ```bash
 bun run check
@@ -682,7 +682,7 @@ Expected: every task successful, and one new line in the output between `check-c
 check-env: 31 schema keys documented in .env.example and forwarded by docker-compose.prod.yml.
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add tools/check-env.ts package.json
