@@ -61,3 +61,17 @@
 
 - **SEC-07** (session lifetime) — plan 013; it edits the same `packages/auth/src/index.ts` file in a different region (the `session` config block), so coordinate if running concurrently: plan 013 owns `createAuth`'s `session` key, this plan owns `emailAndPassword`.
 - Changing the verification email template or the sign-up flow.
+
+## Follow-up (executed, commit `1f00c40`)
+
+The gate had an unplanned consequence the scout pass did not list: with
+`requireEmailVerification: true`, `/api/auth/sign-up/email` no longer issues a
+session cookie, so `apps/server/test-http.ts`'s `signUp` helpers threw
+"sign-up returned no cookie" and every route suite that signs up through them
+went red — violating the Global Constraint that the gate stays green. Fixed in
+`apps/server/test-http.ts`: the helper marks the address verified in the
+database (the test's stand-in for the verification mail's link) and then signs
+in through the real `/api/auth/sign-in/email` route, so the session the guards
+exercise is still minted by production code. Verified against the test DB with
+a live probe (sign-up → no cookie; verified sign-in → cookie; org create → 200)
+and by running the affected suites.
