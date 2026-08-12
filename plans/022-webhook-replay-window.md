@@ -91,7 +91,7 @@ Each of these was checked against the working tree at `39fd32c`, not copied from
   - `SignatureInput` gains `signedPrefix: string` (required).
   - `webhook.fixtures.ts` exports `SECRET: string`, `DELIVERED: string`, `bytes(payload: string): ArrayBuffer`, `signedPrefix(at: Date): string`, `DeliveryOptions`, and `delivery(options?: DeliveryOptions): SignatureInput`. Task 2 extends `delivery` and both suites depend on it.
 
-- [ ] **Step 1: Write the fixture**
+- [x] **Step 1: Write the fixture**
 
 The suites need a delivery whose digest matches the bytes *and* the prefix it claims. Computing that at each call site is how a suite ends up asserting against a digest literal nobody can re-derive, and once there are two suites it is also duplication. Create `apps/server/src/lib/webhook.fixtures.ts`:
 
@@ -176,7 +176,7 @@ export function delivery(options: DeliveryOptions = {}): SignatureInput {
 }
 ```
 
-- [ ] **Step 2: Move the existing suite onto the fixture and add the three prefix cases**
+- [x] **Step 2: Move the existing suite onto the fixture and add the three prefix cases**
 
 Every assertion below already existed and keeps its wording and its comments; what changes is that the four fields come from `delivery()` and one of them is overridden per case. The last three cases are new. Replace the whole of `apps/server/src/lib/webhook.test.ts`:
 
@@ -355,7 +355,7 @@ import {
 } from "./webhook.fixtures";
 ```
 
-- [ ] **Step 3: Run it and watch it fail for the right reason**
+- [x] **Step 3: Run it and watch it fail for the right reason**
 
 ```bash
 cd apps/server && bun test src/lib/webhook.test.ts
@@ -363,7 +363,7 @@ cd apps/server && bun test src/lib/webhook.test.ts
 
 Expected: the run fails to typecheck the fixture's return value and the overrides — `Object literal may only specify known properties, and 'signedPrefix' does not exist in type 'SignatureInput'`. Under `bun test` that surfaces as the suite erroring on import rather than as failed assertions. If instead you see `19 pass`, `signedPrefix` was already added to `webhook.ts`; back that out and do Step 4 deliberately.
 
-- [ ] **Step 4: Add `signedPrefix` to the input**
+- [x] **Step 4: Add `signedPrefix` to the input**
 
 In `apps/server/src/lib/webhook.ts`, replace the interface at lines 41-46:
 
@@ -393,7 +393,7 @@ export interface SignatureInput {
 }
 ```
 
-- [ ] **Step 5: Fold the prefix into the digest**
+- [x] **Step 5: Fold the prefix into the digest**
 
 Same file. Replace the destructure at lines 75-79:
 
@@ -417,7 +417,7 @@ and the digest at lines 95-97:
 
 Two `update` calls rather than a concatenation: the digest is identical, and the body is still hashed in place with no second copy of it — which is what the comment two lines above promises. An empty prefix hashes nothing, so a body-only provider's digest is bit-for-bit what this function produced before this commit.
 
-- [ ] **Step 6: Run the test and watch it pass**
+- [x] **Step 6: Run the test and watch it pass**
 
 ```bash
 cd apps/server && bun test src/lib/webhook.test.ts
@@ -425,7 +425,7 @@ cd apps/server && bun test src/lib/webhook.test.ts
 
 Expected: `19 pass, 0 fail` — the 16 cases that existed at `39fd32c` plus the three prefix cases.
 
-- [ ] **Step 7: Prove the whole gate is green**
+- [x] **Step 7: Prove the whole gate is green**
 
 ```bash
 bun run fix && bun run check
@@ -433,7 +433,7 @@ bun run fix && bun run check
 
 Expected: every turbo task successful; `check-naming` reports the same suite count as before this task (33 at `39fd32c` — the new file is a `.fixtures.ts`, not a suite) and no violation for it; 16 architecture rules verified; migrations match. `bun run fix` runs first because Biome owns import-specifier and object-key order, and `bun run lint` inside `check` does not write.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/server/src/lib/webhook.ts apps/server/src/lib/webhook.fixtures.ts apps/server/src/lib/webhook.test.ts
@@ -495,7 +495,7 @@ reader — out of the tests. 19 pass."
 
   The return type stays `boolean`. A result union naming *why* verification failed is the next thing a receiver would put in a response body or a log line an attacker can provoke, and the distinction between "stale" and "forged" is precisely what must not leave the process.
 
-- [ ] **Step 1: Teach the fixture to return the instant it signed**
+- [x] **Step 1: Teach the fixture to return the instant it signed**
 
 `delivery` already computes `at` and derives the prefix from it. Return it as well, so a suite cannot hand `verifySignature` a `signedAt` that disagrees with the prefix by accident. In `apps/server/src/lib/webhook.fixtures.ts`, replace the returned object inside `delivery`:
 
@@ -529,7 +529,7 @@ and extend the doc comment above `delivery` with the reason the two travel toget
  */
 ```
 
-- [ ] **Step 2: Write the failing suite**
+- [x] **Step 2: Write the failing suite**
 
 Create `apps/server/src/lib/webhook.replay.test.ts`:
 
@@ -646,7 +646,7 @@ describe("verifySignature replay window", () => {
 });
 ```
 
-- [ ] **Step 3: Run it and watch it fail for the right reason**
+- [x] **Step 3: Run it and watch it fail for the right reason**
 
 ```bash
 cd apps/server && bun test src/lib/webhook.replay.test.ts
@@ -654,7 +654,7 @@ cd apps/server && bun test src/lib/webhook.replay.test.ts
 
 Expected: the suite errors on import — `NO_TIMESTAMP` is not exported from `./webhook`, and `signedAt` is not a known property of `SignatureInput`. If it runs and reports `1 pass, 6 fail`, an earlier attempt left `signedAt` in the interface without the window; read `webhook.ts` before continuing.
 
-- [ ] **Step 4: Add the window**
+- [x] **Step 4: Add the window**
 
 In `apps/server/src/lib/webhook.ts`, insert after the `HEX_DIGEST` constant at line 39:
 
@@ -714,7 +714,7 @@ function withinWindow(signedAt: Date | typeof NO_TIMESTAMP): boolean {
 }
 ```
 
-- [ ] **Step 5: Add `signedAt` to the input**
+- [x] **Step 5: Add `signedAt` to the input**
 
 Same file. Insert into `SignatureInput`, between `secret` and `signedPrefix` so the members stay sorted:
 
@@ -750,7 +750,7 @@ export function verifySignature({
 }: SignatureInput): boolean {
 ```
 
-- [ ] **Step 6: Combine the two verdicts without a branch between them**
+- [x] **Step 6: Combine the two verdicts without a branch between them**
 
 Same file. Replace the final return (the `safeEquals` line and the three comment lines above it):
 
@@ -773,7 +773,7 @@ Same file. Replace the final return (the `safeEquals` line and the three comment
 	return fresh && matches;
 ```
 
-- [ ] **Step 7: Put freshness into the receiver order at the top of the file**
+- [x] **Step 7: Put freshness into the receiver order at the top of the file**
 
 Same file, lines 7-9 — the first item of the numbered receiver order. Replace:
 
@@ -785,7 +785,7 @@ Same file, lines 7-9 — the first item of the numbered receiver order. Replace:
  *    verified last week must not be able to reach any of them twice.
 ```
 
-- [ ] **Step 8: Run both suites and watch them pass**
+- [x] **Step 8: Run both suites and watch them pass**
 
 ```bash
 cd apps/server && bun test src/lib/webhook.test.ts src/lib/webhook.replay.test.ts
@@ -793,7 +793,7 @@ cd apps/server && bun test src/lib/webhook.test.ts src/lib/webhook.replay.test.t
 
 Expected: `26 pass, 0 fail` — 19 from Task 1 and 7 here.
 
-- [ ] **Step 9: Prove the whole gate is green**
+- [x] **Step 9: Prove the whole gate is green**
 
 ```bash
 bun run fix && bun run check
@@ -801,7 +801,7 @@ bun run fix && bun run check
 
 Expected: every turbo task successful; `check-naming` reports one more suite than before this task (34 at `39fd32c`, and it accepts `webhook.replay.test.ts` because `webhook.ts` exists beside it); 16 architecture rules verified; migrations match.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add apps/server/src/lib/webhook.ts apps/server/src/lib/webhook.fixtures.ts apps/server/src/lib/webhook.replay.test.ts
@@ -858,7 +858,7 @@ window cannot be reached by forgetting — it shows up in the diff and in a grep
 - Consumes: `NO_TIMESTAMP` and the window from Task 2.
 - Produces: no code. The contract plan 025's receiver, and every receiver after it, is held to.
 
-- [ ] **Step 1: Write the contract onto the function**
+- [x] **Step 1: Write the contract onto the function**
 
 The window bounds a replay to five minutes; it does not make delivery exactly-once, and a reader who stops at "there is a window now" will build a receiver that double-processes inside it. Two candidates were considered for where this belongs. `.agents/skills/server-module/SKILL.md` covers modules — tables, contracts, the four layers, tenancy — and has no background-work section at all; putting the queue's replay semantics there means a receiver author reads it only if they happen to be adding a module at the time. The doc comment travels with the signature they are already reading, and it is what their editor shows them at the call site. So: the doc comment, and 025's receiver as the executable statement of it.
 
@@ -896,7 +896,7 @@ In `apps/server/src/lib/webhook.ts`, append to the doc comment on `verifySignatu
  */
 ```
 
-- [ ] **Step 2: Fix the documented receiver order in the README**
+- [x] **Step 2: Fix the documented receiver order in the README**
 
 `README.md:257-261` describes the pattern as the clearest case for background work and now under-describes it — a reader following that paragraph would build a receiver with no freshness check and no event identity. Replace those lines:
 
@@ -914,7 +914,7 @@ seconds, and an LLM or outbound API call does not fit inside that window.
 
 Nothing else in `README.md` changes. Its counts belong to plan 021.
 
-- [ ] **Step 3: Hand plan 021 the AGENTS.md clause**
+- [x] **Step 3: Hand plan 021 the AGENTS.md clause**
 
 `AGENTS.md:49-51` carries the same pattern in one sentence: "Webhook receivers verify over `await c.req.arrayBuffer()`, persist, enqueue, return 200; a re-stringified body produces a different digest and rejects every event." Plan 021 owns that file's length and is the only plan permitted to edit it, so do not touch it here. Record the replacement for 021 to carry:
 
@@ -922,7 +922,7 @@ Nothing else in `README.md` changes. Its counts belong to plan 021.
 
 Post it to plan 021's author, or add it to that plan's file if 021 has not landed. Do not leave it only in this plan.
 
-- [ ] **Step 4: Prove the whole gate is green**
+- [x] **Step 4: Prove the whole gate is green**
 
 ```bash
 bun run fix && bun run check
@@ -930,7 +930,7 @@ bun run fix && bun run check
 
 Expected: every turbo task successful, `26 pass` across the two webhook suites, suite count unchanged from Task 2, 16 architecture rules verified, migrations match. Comment lines do not count toward `noExcessiveLinesPerFile`, so the doc addition cannot push `webhook.ts` over the limit — but the run is what says so.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/server/src/lib/webhook.ts README.md
