@@ -8,6 +8,7 @@ import { aiModel } from "@/lib/ai";
 import { hasUsageForJob, recordUsage } from "@/lib/ai.repository";
 import { type JobRegistry, runOnce, shouldPollImmediately } from "@/lib/jobs";
 import { resolveMailConfig } from "@/lib/mail";
+import { webhookProcess } from "@/modules/webhooks";
 
 /**
  * Background worker entrypoint: `bun dist/worker.mjs`.
@@ -107,6 +108,10 @@ registry.set("ai.generate", async (payload, jobId) => {
 			`[ai.generate] ${jobId} ${generation.model} in=${generation.usage.inputTokens} out=${generation.usage.outputTokens}\n${generation.text.slice(0, 4000)}\n`
 		);
 	}
+	// The webhooks module owns both halves: the receiver enqueues a delivery
+	// that verified and persisted, this handler marks it processed. Idempotent
+	// by design — the queue may run it twice, and the second run is a no-op.
+	registry.set("webhook.process", webhookProcess);
 });
 
 /**

@@ -220,6 +220,16 @@ export const env = createEnv({
 			.optional()
 			.transform((value) => value?.split(",").map((entry) => entry.trim())),
 		/**
+		 * The shared key the webhook receiver verifies provider signatures
+		 * against. The receiver's own `resolveWebhookSecret` is the guard,
+		 * mirroring the storage keys: optional because receiving webhooks is
+		 * opt-in, and a deployment that mounts no provider integration needs
+		 * none. The first delivery on a deployment without it is refused with a
+		 * 503 naming this variable — never an unverified event persisted, and
+		 * never a silent 200.
+		 */
+		WEBHOOK_SECRET: z.string().min(16).optional(),
+		/**
 		 * How many jobs one worker claims per poll.
 		 *
 		 * A batch is processed one job at a time, so this is a ceiling on how long
