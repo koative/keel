@@ -11,7 +11,7 @@
 
 **Tech Stack:** Bun, Drizzle ORM 0.45.2 (`node-postgres` driver), drizzle-kit 0.31.10, pg 8.22 / `@types/pg` 8.21, PostgreSQL 18, better-auth 1.6.25, bun:test.
 
-> **Implementation note (executed on main at `9fdb492`):** this plan's migration was written when `0004_ai_usage.sql` was head. Since then plans 013 and 025 landed `0006_idempotency_organization.sql` and `0007_webhook_event.sql`, so the generated migration is **`0008_sweep_indexes.sql`** — same two `CREATE INDEX` statements, next ordinal. The plan text below still says `0005`; read every `0005_sweep_indexes` mention as `0008_sweep_indexes`. All other drift vs. the audited commit: plan 017 renamed the partial dedupe index to `job_dedupeKey_unsettled_idx` (the plan's evidence quotes `job_dedupeKey_pending_idx`), and plan 011/016 moved `sweepSettledJobs` to `apps/server/src/lib/jobs.repository.ts:248-256` with `markUnsettled`/`reclaimStrandedJobs` added above and below it; plan 025 added the `reclaimStrandedJobs` call and its `STRANDED_JOB_TIMEOUT_MS` block to `tasks.ts`.
+> **Implementation note (executed on main at `9fdb492`):** this plan's migration was written when `0004_ai_usage.sql` was head. Since then plans 013 and 025 landed `0006_idempotency_organization.sql` and `0007_webhook_event.sql`, so the generated migration is **`0008_sweep_indexes.sql`** — same two `CREATE INDEX` statements, next ordinal. The plan text below still says `0005`; read every `0005_sweep_indexes` mention as `0008_sweep_indexes`. All other drift vs. the audited commit: plan 017 renamed the partial dedupe index to `job_dedupeKey_unsettled_idx` (the plan's evidence quotes `job_dedupeKey_pending_idx`), and plan 011/016 moved `sweepSettledJobs` to `apps/server/src/lib/jobs.repository.ts:248-256` with `markUnsettled`/`reclaimStrandedJobs` added above and below it; plan 025 added the `reclaimStrandedJobs` call and its `STRANDED_JOB_TIMEOUT_MS` block to `tasks.ts`. One more drift: the plan's Task-2 snippet keeps `async` on `sweepSettledJobs`, but Ultracite's `useAwait` rule rejects an `async` function that only returns another promise, so the landed version is `export function sweepSettledJobs(olderThan: Date): Promise<number>` — same signature, no modifier.
 
 ---
 
@@ -272,7 +272,7 @@ bun run check
 
 Expected: every task successful; `check-migrations: 6 migration(s), schema matches.`
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/db/src/schema/job.ts packages/db/src/schema/auth.ts packages/db/src/migrations
@@ -316,7 +316,7 @@ the new index with the predicate in Index Cond."
 - Consumes: Task 1's indexes (performance only).
 - Produces: `export interface BatchedDelete { batchSize?: number; maxBatches?: number; primaryKey: PgColumn; table: PgTable; where: SQL | undefined }` and `export async function deleteInBatches(options: BatchedDelete): Promise<number>` from `apps/server/src/lib/sweep.ts`. Task 3 calls exactly this. `sweepSettledJobs(olderThan: Date): Promise<number>` keeps its signature unchanged.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apps/server/src/lib/sweep.test.ts`:
 
@@ -458,7 +458,7 @@ describe.skipIf(!ready)("deleteInBatches", () => {
 });
 ```
 
-- [ ] **Step 2: Run it and watch it fail for the right reason**
+- [x] **Step 2: Run it and watch it fail for the right reason**
 
 ```bash
 cd apps/server && bun test src/lib/sweep.test.ts
@@ -466,7 +466,7 @@ cd apps/server && bun test src/lib/sweep.test.ts
 
 Expected: the run aborts before any test executes, resolving the import — `error: Cannot find module '@/lib/sweep'`. If instead you see the skip notice `[skip] sweep needs the test database.`, the database from Task 1 is not up: `bun run db:test:start && bun run db:test:migrate` at the repository root, then re-run.
 
-- [ ] **Step 3: Write the helper**
+- [x] **Step 3: Write the helper**
 
 Create `apps/server/src/lib/sweep.ts`:
 
@@ -578,7 +578,7 @@ export async function deleteInBatches({
 }
 ```
 
-- [ ] **Step 4: Run the test and watch it pass**
+- [x] **Step 4: Run the test and watch it pass**
 
 ```bash
 cd apps/server && bun test src/lib/sweep.test.ts
@@ -586,7 +586,7 @@ cd apps/server && bun test src/lib/sweep.test.ts
 
 Expected: `4 pass, 0 fail`.
 
-- [ ] **Step 5: Point `sweepSettledJobs` at it**
+- [x] **Step 5: Point `sweepSettledJobs` at it**
 
 In `apps/server/src/lib/jobs.repository.ts`, add the import after the `drizzle-orm` line at line 3:
 
@@ -611,7 +611,7 @@ export async function sweepSettledJobs(olderThan: Date): Promise<number> {
 
 `and`, `inArray` and `lt` stay imported — all three are still used here, and `eq` and `sql` are still used by `complete`, `fail` and `claim`.
 
-- [ ] **Step 6: Prove the queue still behaves**
+- [x] **Step 6: Prove the queue still behaves**
 
 ```bash
 cd apps/server && bun test src/lib/jobs.test.ts src/lib/jobs.ownership.test.ts src/lib/sweep.test.ts
@@ -619,7 +619,7 @@ cd apps/server && bun test src/lib/jobs.test.ts src/lib/jobs.ownership.test.ts s
 
 Expected: every test passes, no skip notice. These suites share the `job` table and both truncate it in `beforeEach`, so a green run here is also the proof that the new suite does not tread on the existing ones.
 
-- [ ] **Step 7: Prove the whole gate is green**
+- [x] **Step 7: Prove the whole gate is green**
 
 ```bash
 bun run check
@@ -627,7 +627,7 @@ bun run check
 
 Expected: every task successful, and `check-naming` reports one more suite than it did before this task.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/server/src/lib/sweep.ts apps/server/src/lib/sweep.test.ts apps/server/src/lib/jobs.repository.ts

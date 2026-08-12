@@ -1,6 +1,7 @@
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { deleteInBatches } from "@/lib/sweep";
 
 /**
  * The only file allowed to touch Drizzle for the queue, mirroring the per-module
@@ -245,14 +246,15 @@ export async function fail(
  * someone might still read `last_error` to find out what broke; it is not worth
  * keeping forever, and it holds the same one-time link a delivered one does.
  */
-export async function sweepSettledJobs(olderThan: Date): Promise<number> {
-	const removed = await db
-		.delete(job)
-		.where(
-			and(inArray(job.status, ["done", "failed"]), lt(job.updatedAt, olderThan))
-		)
-		.returning({ id: job.id });
-	return removed.length;
+export function sweepSettledJobs(olderThan: Date): Promise<number> {
+	return deleteInBatches({
+		primaryKey: job.id,
+		table: job,
+		where: and(
+			inArray(job.status, ["done", "failed"]),
+			lt(job.updatedAt, olderThan)
+		),
+	});
 }
 
 export interface ReclaimedJobs {
