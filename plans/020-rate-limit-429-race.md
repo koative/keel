@@ -46,8 +46,9 @@
 
 ### Task 2 (optional, only if the audit's concurrent angle is genuinely uncovered)
 
-- [ ] **Step 1:** Decide whether a concurrent burst (a `Promise.all` of WRITE_BUDGET requests against a fresh bucket) adds coverage the serial loop does not. If yes, add it with a primed-to-0 bucket and assert exactly one request failed (the loser) — or exactly budget-1 succeeded. If the added value is marginal (the middleware is a single conditional upsert), do not add it and say so in the commit message.
-- [ ] **Step 2:** Commit if added: `test(rate-limit): concurrent burst leaves exactly one loser`.
+- [x] **Step 1:** Decide whether a concurrent burst (a `Promise.all` of WRITE_BUDGET requests against a fresh bucket) adds coverage the serial loop does not. If yes, add it with a primed-to-0 bucket and assert exactly one request failed (the loser) — or exactly budget-1 succeeded. If the added value is marginal (the middleware is a single conditional upsert), do not add it and say so in the commit message.
+  > Added — the single-statement upsert's exclusivity is asserted nowhere else, and a read-then-write regression passes every serial test but fails this one. Deviations from the plan's numbers, verified against the limiter: a fresh bucket starts at `capacity - 1`, so with exactly WRITE_BUDGET requests the last committer lands at ~0 and **nothing** is refused; the test fires `WRITE_BUDGET + 1` requests so exactly one loser is guaranteed. A primed-to-0 bucket would refuse *every* request (debt floor), so it is not used.
+- [x] **Step 2:** Commit if added: `test(rate-limit): concurrent burst leaves exactly one loser`.
 
 ## Done when
 

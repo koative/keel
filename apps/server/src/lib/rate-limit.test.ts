@@ -42,9 +42,8 @@ function buildApp(actorId: string) {
 	return app;
 }
 
-// No `seedUser`: `api_rate_limit.key` is opaque text with no foreign key, so a
-// bucket needs no row anywhere else. A fresh id per test is what keeps the suites
-// from contending.
+// No seedUser: the bucket key is opaque text with no foreign key, so a fresh id
+// per test keeps the suites from contending.
 const freshActor = () => crypto.randomUUID();
 
 const remainingOf = (response: Response) =>
@@ -86,122 +85,102 @@ const tokensIn = async (key: string) => {
 describe.skipIf(!ready)("rate limit middleware", () => {
 	it("spends a token per request and reports the budget left", async () => {
 		const app = buildApp(freshActor());
-
 		const first = await app.request("/things");
 		const second = await app.request("/things");
 
 		expect(first.status).toBe(200);
 		expect(first.headers.get("RateLimit-Limit")).toBe(String(READ_BUDGET));
 		expect(remainingOf(first)).toBe(READ_BUDGET - 1);
-		// One token down out of a bucket that refills a tenth of a second's worth
-		// per token: derived, not the flat minute the budget is stated in.
+		// One token down; the reset is derived, not the flat minute.
 		expect(first.headers.get("RateLimit-Reset")).toBe("1");
-
 		expect(remainingOf(second)).toBeLessThan(remainingOf(first));
-		// A lower bound as well, because the refill runs between the two requests:
-		// the count may not drop by more than the one token the request spent.
+		// Lower bound too: the refill between requests caps the drop at one token.
 		expect(remainingOf(second)).toBeGreaterThanOrEqual(READ_BUDGET - 2);
 	});
 
-	// Primed rather than spent for real: spending the budget only reaches the
-	// refusal if the serial loop finishes before the bucket earns a token back,
-	// which is the sub-second property that used to flake this test. The spend
-	// here lands at -1 — the refusal — and a refill cannot change that unless a
-	// whole second passed since the prime, which would only make the request
-	// allowed at remaining 1 instead.
+	// Primed rather than spent, so the refusal cannot race the refill: a spent
+	// loop only lands on it if it finishes in under a second — the flake this
+	// test used to have. A primed 1 is still spendable (`allowed` is tokens >= 0);
+	// the refusal starts a token below, at the primed 0.
 	it("refuses with a 429 once the budget is spent", async () => {
 		const actorId = freshActor();
 		const app = buildApp(actorId);
-		// Empty, not one token: the limiter refuses below zero, so a primed 1
-		// would still be spent by this request. Zero is the level the refusal
-		// tests elsewhere in this suite prime to.
+		await primeBucket(`${actorId}|write`, 1);
+		const last = await app.request("/things", { method: "POST" });
+		expect(last.status).toBe(200);
+		expect(remainingOf(last)).toBe(0);
 		await primeBucket(`${actorId}|write`, 0);
-
 		const refused = await app.request("/things", { method: "POST" });
 		const body = (await refused.json()) as { error: { code: string } };
-
 		expect(refused.status).toBe(429);
 		expect(body.error.code).toBe("TOO_MANY_REQUESTS");
-		// Set before the throw, and it has to survive `app.onError` to be useful.
-		// Two, not one: a refusal settles the bucket just below zero, so the caller
-		// waits out the debt token as well as the one it wants to spend.
+		// Set before the throw, and it has to survive `app.onError`. Two, not one:
+		// a refusal settles the bucket just below zero, so the caller waits out the
+		// debt token as well as the one it wants to spend.
 		expect(refused.headers.get("Retry-After")).toBe("2");
 		expect(refused.headers.get("RateLimit-Limit")).toBe(String(WRITE_BUDGET));
 		expect(remainingOf(refused)).toBe(0);
 	});
 
-	// The mirror image of the refusal above: a bucket that lands on exactly zero
-	// still allows, because `allowed` is tokens >= 0. Primed to one so the count
-	// cannot move between setup and assertion, as it could in a spent loop.
-	it("allows the request that spends the last token", async () => {
-		const actorId = freshActor();
-		const app = buildApp(actorId);
-		await primeBucket(`${actorId}|write`, 1);
-
-		const last = await app.request("/things", { method: "POST" });
-
-		expect(last.status).toBe(200);
-		expect(remainingOf(last)).toBe(0);
-	});
-
-	// The whole budget, spent for real rather than primed: this is the test that
-	// would catch the capacity being wired to the wrong env key, or an off-by-one
-	// in the fresh bucket's starting level. `remaining` is deliberately not
-	// asserted — a slow runner earns a token back while the loop runs, which is
-	// the race the 429 test above was freed from — so the exact counts live in
-	// the primed tests. What the loop still says that no primed test can is that
-	// every request up to the budget succeeds, and that survives any refill.
+	// The whole budget spent for real, not primed: this would catch the capacity
+	// wired to the wrong env key, or an off-by-one in the fresh bucket's start.
+	// `remaining` is not asserted — a slow runner earns a token back mid-loop —
+	// so the exact counts live in the primed tests; the loop still proves every
+	// request up to the budget succeeds.
 	it("lets a client spend the whole budget as a burst", async () => {
 		const app = buildApp(freshActor());
-
 		let last = await app.request("/things", { method: "POST" });
 		for (let spent = 1; spent < WRITE_BUDGET; spent += 1) {
 			// biome-ignore lint/performance/noAwaitInLoops: a burst has to be serial to be countable — issued in parallel these would interleave with the refill and the request that tips the bucket over would no longer be a known one.
 			last = await app.request("/things", { method: "POST" });
 		}
-
 		expect(last.status).toBe(200);
 	});
 
+	// The single-statement upsert is what serialises concurrent spends; a
+	// read-then-write version would let two of a burst spend the same token. The
+	// serial burst cannot see that, so here the burst arrives together — one
+	// request more than the budget, because the fresh row starts at capacity - 1.
+	it("leaves exactly one loser when a burst arrives concurrently", async () => {
+		const app = buildApp(freshActor());
+		const requests = Array.from({ length: WRITE_BUDGET + 1 }, () =>
+			app.request("/things", { method: "POST" })
+		);
+		const responses = await Promise.all(requests);
+		const refused = responses.filter((response) => response.status === 429);
+		const allowed = responses.filter((response) => response.status === 200);
+		expect(refused).toHaveLength(1);
+		expect(allowed).toHaveLength(WRITE_BUDGET);
+		expect(refused[0]?.headers.get("Retry-After")).toBe("2");
+	});
 	it("draws reads and writes from separate buckets", async () => {
 		const actorId = freshActor();
 		const app = buildApp(actorId);
 		await primeBucket(`${actorId}|write`, 0);
-
 		const write = await app.request("/things", { method: "POST" });
 		const read = await app.request("/things");
-
 		expect(write.status).toBe(429);
 		expect(read.status).toBe(200);
 		expect(remainingOf(read)).toBe(READ_BUDGET - 1);
 	});
-
 	it("keeps one actor's exhaustion off another actor", async () => {
 		const spent = freshActor();
 		const fresh = freshActor();
 		await primeBucket(`${spent}|write`, 0);
-
-		const refused = await buildApp(spent).request("/things", {
-			method: "POST",
-		});
-		const allowed = await buildApp(fresh).request("/things", {
-			method: "POST",
-		});
-
+		const post = { method: "POST" } as const;
+		const refused = await buildApp(spent).request("/things", post);
+		const allowed = await buildApp(fresh).request("/things", post);
 		expect(refused.status).toBe(429);
 		expect(allowed.status).toBe(200);
 		expect(remainingOf(allowed)).toBe(WRITE_BUDGET - 1);
 	});
-
 	it("refills the bucket as time passes, up to its capacity", async () => {
 		const actorId = freshActor();
 		const app = buildApp(actorId);
 		const key = `${actorId}|write`;
-
 		await primeBucket(key, 0);
 		await ageBucket(key, 30);
 		const partial = await app.request("/things", { method: "POST" });
-
 		// Half a minute at one token a second, less the token this request spent.
 		expect(partial.status).toBe(200);
 		expect(remainingOf(partial)).toBe(WRITE_BUDGET / 2 - 1);
@@ -209,11 +188,9 @@ describe.skipIf(!ready)("rate limit middleware", () => {
 		await primeBucket(key, 0);
 		await ageBucket(key, 10 * 60);
 		const capped = await app.request("/things", { method: "POST" });
-
-		// Ten minutes would be ten budgets. The bucket is not a savings account.
+		// Ten minutes is ten budgets; the bucket is not a savings account.
 		expect(remainingOf(capped)).toBe(WRITE_BUDGET - 1);
 	});
-
 	it("does not let a refused caller run up unbounded debt", async () => {
 		const actorId = freshActor();
 		const app = buildApp(actorId);
@@ -227,13 +204,11 @@ describe.skipIf(!ready)("rate limit middleware", () => {
 		}
 
 		expect(refused?.status).toBe(429);
-		// Twenty-five refusals, and the wait is what a single refusal costs. Without
-		// the floor in the repository this would be twenty-five seconds and climbing,
-		// which would lock out a client that merely retried too eagerly once.
+		// Twenty-five refusals, and the wait is what a single refusal costs:
+		// without the repository floor the debt would climb a second per refusal.
 		expect(refused?.headers.get("Retry-After")).toBe("2");
 		expect(await tokensIn(key)).toBeGreaterThanOrEqual(-1);
-
-		// And the debt really does clear in that time rather than merely reporting so.
+		// And the debt really clears in that time, not just on paper.
 		await ageBucket(key, 2);
 		const recovered = await app.request("/things", { method: "POST" });
 		expect(recovered.status).toBe(200);
