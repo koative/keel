@@ -9,6 +9,11 @@ import { defineConfig } from "tsdown";
  * tree, and the point of doing it at three endpoints is not to discover the
  * problem at eighty.
  *
+ * The entry is `app-type.ts`, not `app.ts`: `AppType` derives from
+ * `internalRoutes` there, so the frozen `/v1` half never enters the bundle.
+ * The entry key `app` keeps the output named `types/app.d.mts`, so the
+ * `exports["./app-type"]` contract in package.json is untouched.
+ *
  * Bundling rather than `tsc --emitDeclarationOnly` because the emitted tree
  * would carry the server's `@/*` path alias into a package that has no business
  * knowing it. The alias is not incidental — the layer rules mandate `@/lib/*`
@@ -18,7 +23,7 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
 	clean: true,
 	dts: { emitDtsOnly: true },
-	entry: "./src/app.ts",
+	entry: { app: "./src/app-type.ts" },
 	format: "esm",
 	outDir: "types",
 	tsconfig: "./tsconfig.json",

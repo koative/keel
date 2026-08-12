@@ -38,13 +38,13 @@
 
 **Files:** `apps/server/src/app.ts`, `apps/server/tsdown.types.config.ts`, regenerated `types/app.d.mts`
 
-- [ ] **Step 1:** Read `apps/server/src/app.ts` end to end — how the internal routes are mounted (the audit notes `app.ts:148-150` — "internalProjectRoutes is a plain Hono, absent from the OpenAPI document by construction"). Find the smallest router object that carries the `/api/*` surface and nothing else.
-- [ ] **Step 2:** Export that internal router under a stable name (e.g. `export const internalRoutes`) alongside the existing `app` export, with a comment saying why it exists: the type bundle targets it so the client's `AppType` never sees the frozen `/v1` half. Keep `app` as the runtime entry unchanged.
-- [ ] **Step 3:** Change `tsdown.types.config.ts`'s `entry` to the module exporting `internalRoutes` (or add a second entry), so the emitted `app.d.mts` derives `AppType` from the internal router only.
-- [ ] **Step 4:** Regenerate the bundle (the repo's `build:types` task or the exact command the config implies — check `apps/server/package.json` for `build:types`/`types` scripts) and confirm `types/app.d.mts` no longer contains `/v1`, `R["request"]`, `R_1`, `Part`, or `output: any`.
-- [ ] **Step 5:** Typecheck with `skipLibCheck` off to prove the file is now self-contained: run `tsc --noEmit` (or a scoped invocation) against the bundle with `--skipLibCheck false` — expected: no unresolved-name errors. Record the exact command used.
-- [ ] **Step 6:** Confirm the client still works: `cd apps/web && bun run check-types` (or the package's typecheck) — green.
-- [ ] **Step 7:** Commit: `fix(types): the typed client covers the surface it is allowed to use`.
+- [x] **Step 1:** Read `apps/server/src/app.ts` end to end — how the internal routes are mounted (the audit notes `app.ts:148-150` — "internalProjectRoutes is a plain Hono, absent from the OpenAPI document by construction"). Find the smallest router object that carries the `/api/*` surface and nothing else.
+- [x] **Step 2:** Export that internal router under a stable name (e.g. `export const internalRoutes`) alongside the existing `app` export, with a comment saying why it exists: the type bundle targets it so the client's `AppType` never sees the frozen `/v1` half. Keep `app` as the runtime entry unchanged.
+- [x] **Step 3:** Change `tsdown.types.config.ts`'s `entry` to the module exporting `internalRoutes` (or add a second entry), so the emitted `app.d.mts` derives `AppType` from the internal router only.
+- [x] **Step 4:** Regenerate the bundle (the repo's `build:types` task or the exact command the config implies — check `apps/server/package.json` for `build:types`/`types` scripts) and confirm `types/app.d.mts` no longer contains `/v1`, `R["request"]`, `R_1`, `Part`, or `output: any`.
+- [x] **Step 5:** Typecheck with `skipLibCheck` off to prove the file is now self-contained: run `tsc --noEmit` (or a scoped invocation) against the bundle with `--skipLibCheck false` — expected: no unresolved-name errors. Record the exact command used.
+- [x] **Step 6:** Confirm the client still works: `cd apps/web && bun run check-types` (or the package's typecheck) — green.
+- [x] **Step 7:** Commit: `fix(types): the typed client covers the surface it is allowed to use`.
 
 ### Task 2: A gate so it cannot silently rot again
 

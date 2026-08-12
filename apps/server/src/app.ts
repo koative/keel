@@ -15,6 +15,7 @@ import {
 } from "evlog/better-auth";
 import { evlog } from "evlog/hono";
 import { cors } from "hono/cors";
+import { internalRoutes } from "@/internal-routes";
 import type { AppEnv } from "@/lib/context";
 import { checkReadiness } from "@/lib/health";
 import {
@@ -23,10 +24,7 @@ import {
 	requestBodyLimit,
 } from "@/lib/security";
 import { rejectInvalid } from "@/lib/validate";
-import {
-	internalProjectRoutes,
-	publicProjectRoutesV1,
-} from "@/modules/projects";
+import { publicProjectRoutesV1 } from "@/modules/projects";
 
 const identifyUser = createAuthMiddleware(auth as BetterAuthInstance, {
 	exclude: ["/api/auth/**"],
@@ -158,11 +156,12 @@ app.doc("/doc", {
 	openapi: "3.1.0",
 });
 
-// Routes are chained so the app type carries every endpoint, which is what makes
-// the typed client in @keel/api-client possible.
-const routes = app
+// The `/v1` half stays mounted here — only its presence in the client's type
+// bundle changes. Mounting both halves keeps the runtime surface intact while
+// `AppType` sees the internal router alone.
+app
 	.get("/", (c) => c.text("OK"))
-	.route("/api/projects", internalProjectRoutes)
+	.route("/", internalRoutes)
 	.route("/v1/projects", publicProjectRoutesV1);
 
 // Both terminal paths render the same envelope as every handler, so a client
@@ -171,4 +170,3 @@ app.notFound((c) => notFound(c, "Route"));
 app.onError((error, c) => failure(c, error));
 
 export { app };
-export type AppType = typeof routes;
