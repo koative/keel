@@ -254,3 +254,142 @@ export async function sweepSettledJobs(olderThan: Date): Promise<number> {
 		.returning({ id: job.id });
 	return removed.length;
 }
+
+export interface ReclaimedJobs {
+	/** Stranded rows whose work a newer pending row already covers. */
+	collapsed: number;
+	/** Stranded rows that spent their last attempt and are now `failed`. */
+	exhausted: number;
+	/** Stranded rows put back on the queue. */
+	requeued: number;
+}
+
+/**
+ * Takes back rows a worker claimed and never settled, and reports what happened
+ * to them.
+ *
+ * `claim` is the only writer of `locked_at`, and until this function existed
+ * nothing read it: the sole way out of `running` was the claiming worker's own
+ * `complete` or `fail`, both fenced on `locked_by`. The worker id is
+ * `hostname():pid`, so a restarted worker gets a new pid and cannot settle its
+ * predecessor's rows either. A SIGKILL or an OOM therefore turned at-least-once
+ * delivery into at-most-once, silently and permanently — `sweepSettledJobs`
+ * does not even prune `running`, so the row stayed in the claim index forever.
+ *
+ * `staleAfterMs` is the caller's, not this module's, because the honest value
+ * depends on `WORKER_BATCH_SIZE` — `tasks.ts` derives it and says why there.
+ *
+ * ## The dedupe index
+ *
+ * `job_dedupeKey_pending_idx` is unique on `dedupe_key` where `status =
+ * 'pending'`. A claimed row is `running`, so it has already left that index and
+ * a second `enqueue` of its key was accepted while it ran. Putting the stranded
+ * row back to `pending` would then be a second entry for one key, and the
+ * violation would abort the whole batch — one poisoned row costing every other
+ * row its recovery.
+ *
+ * Two independent things stop that, and both are needed.
+ *
+ * Policy: a row is only requeued when no `pending` row already holds its key,
+ * and when it is the oldest lock among the stranded rows that share it.
+ * Otherwise the work is already covered, so the row is settled `failed` with the
+ * reason on it rather than duplicated.
+ *
+ * Safety: a requeued row is written back with `dedupe_key = null`, so it creates
+ * no index entry and the statement cannot raise 23505 even against an `enqueue`
+ * that commits between the policy read and this write. That is not a loss — the
+ * row released its collapse slot when it was claimed, and a reclaim restores the
+ * attempt, not the claim. Rows that stay settled keep their key, because a
+ * `failed` row is outside the index anyway and the key is how someone reading
+ * the table finds the row that took over.
+ *
+ * `for update skip locked` mirrors `claim`: a concurrent reaper takes a disjoint
+ * set instead of blocking, and a row a live worker is mid-settle on is stepped
+ * over rather than fought with. The repeated `status = 'running'` on the update
+ * itself is the recheck that makes a lost race a no-op rather than a second
+ * attempt increment.
+ */
+export async function reclaimStrandedJobs(
+	staleAfterMs: number
+): Promise<ReclaimedJobs> {
+	const reclaimed = await db.execute(sql`
+		with stale as materialized (
+			select ${job.id} as id from ${job}
+			where ${job.status} = 'running'
+				and ${job.lockedAt} < now() - make_interval(
+					secs => ${staleAfterMs}::bigint / 1000.0
+				)
+			for update skip locked
+		),
+		ranked as (
+			select
+				j.id as id,
+				j.dedupe_key as dedupe_key,
+				row_number() over (
+					partition by j.dedupe_key order by j.locked_at, j.id
+				) as slot
+			from ${job} j
+			join stale on stale.id = j.id
+		),
+		decided as (
+			select
+				r.id as id,
+				(
+					r.dedupe_key is null
+					or (
+						r.slot = 1
+						and not exists (
+							select 1 from ${job} p
+							where p.dedupe_key = r.dedupe_key
+								and p.status = 'pending'
+						)
+					)
+				) as requeue
+			from ranked r
+		)
+		update ${job}
+		set
+			attempts = ${job.attempts} + 1,
+			dedupe_key = case when d.requeue then null else ${job.dedupeKey} end,
+			last_error = 'stranded: worker '
+				|| coalesce(${job.lockedBy}, 'unknown')
+				|| ' stopped without settling this job'
+				|| case
+					when not d.requeue
+						then '; a newer pending job holds its dedupe key'
+					when ${job.attempts} + 1 >= ${job.maxAttempts}
+						then '; no attempts left'
+					else ''
+				end,
+			locked_at = null,
+			locked_by = null,
+			run_at = now(),
+			status = case
+				when not d.requeue then 'failed'
+				when ${job.attempts} + 1 >= ${job.maxAttempts} then 'failed'
+				else 'pending'
+			end,
+			updated_at = now()
+		from decided d
+		where ${job.id} = d.id and ${job.status} = 'running'
+		returning ${job.id}, ${job.status}, d.requeue
+	`);
+
+	// Read out of the returned rows rather than counted with three statements:
+	// the outcome per row is decided inside the update, and asking the table
+	// again afterwards would be asking a different snapshot.
+	let collapsed = 0;
+	let exhausted = 0;
+	let requeued = 0;
+	for (const row of reclaimed.rows) {
+		if (row.requeue !== true) {
+			collapsed += 1;
+		} else if (row.status === "failed") {
+			exhausted += 1;
+		} else {
+			requeued += 1;
+		}
+	}
+
+	return { collapsed, exhausted, requeued };
+}
