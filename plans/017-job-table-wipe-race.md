@@ -37,9 +37,9 @@
 
 **Files:** `apps/server/src/lib/jobs.test.ts`
 
-- [ ] **Step 1:** Read the whole suite first. Find every place it inserts a job row (direct `db.insert(job)` or through `enqueue`/helpers), and every assertion that depends on table state (e.g. `claim` returning an exact batch length, `pendingFor` emptiness).
-- [ ] **Step 2:** Add a module-scoped `const staged: string[] = []` and a helper that registers a row id (or wrap the insert/enqueue call sites so each created id is pushed). Follow the mail queue's naming (`staged`, `freshKey`-style).
-- [ ] **Step 3:** Replace `beforeEach`'s `db.delete(job)` with an `afterEach` that deletes only the staged ids:
+- [x] **Step 1:** Read the whole suite first. Find every place it inserts a job row (direct `db.insert(job)` or through `enqueue`/helpers), and every assertion that depends on table state (e.g. `claim` returning an exact batch length, `pendingFor` emptiness).
+- [x] **Step 2:** Add a module-scoped `const staged: string[] = []` and a helper that registers a row id (or wrap the insert/enqueue call sites so each created id is pushed). Follow the mail queue's naming (`staged`, `freshKey`-style).
+- [x] **Step 3:** Replace `beforeEach`'s `db.delete(job)` with an `afterEach` that deletes only the staged ids:
   ```ts
   afterEach(async () => {
     if (staged.length > 0) {
@@ -48,9 +48,9 @@
   });
   ```
   (Check the existing imports — `inArray` may already be imported in `jobs.test.ts`; `jobs.reaper.test.ts` uses exactly this shape at its `afterEach`.)
-- [ ] **Step 4:** Audit every assertion that previously relied on the table being empty. A `claim` returning an exact length may now see leftovers from another concurrent suite — change it to assert by id (as `jobs.reaper.test.ts:116-120` does) or filter by the suite's own keys. Run the suite alone until green: `cd apps/server && bun test src/lib/jobs.test.ts` (explicit path).
-- [ ] **Step 5:** Run it concurrently with the mail suite to prove the race is gone: `bun test src/lib/jobs.test.ts packages/mail/src/queue.test.ts` won't work across packages in one invocation — instead run the two package test tasks concurrently via `bunx turbo run test --filter=@keel/server --filter=@keel/mail` (or the closest equivalent) and confirm both stay green. If turbo flags are awkward, run `bun test src/lib/jobs.test.ts` in the background while `cd packages/mail && bun test src/queue.test.ts` runs, and check both exit 0.
-- [ ] **Step 6:** Commit: `test(jobs): a suite deletes only the rows it created`.
+- [x] **Step 4:** Audit every assertion that previously relied on the table being empty. A `claim` returning an exact length may now see leftovers from another concurrent suite — change it to assert by id (as `jobs.reaper.test.ts:116-120` does) or filter by the suite's own keys. Run the suite alone until green: `cd apps/server && bun test src/lib/jobs.test.ts` (explicit path).
+- [x] **Step 5:** Run it concurrently with the mail suite to prove the race is gone: `bun test src/lib/jobs.test.ts packages/mail/src/queue.test.ts` won't work across packages in one invocation — instead run the two package test tasks concurrently via `bunx turbo run test --filter=@keel/server --filter=@keel/mail` (or the closest equivalent) and confirm both stay green. If turbo flags are awkward, run `bun test src/lib/jobs.test.ts` in the background while `cd packages/mail && bun test src/queue.test.ts` runs, and check both exit 0.
+- [x] **Step 6:** Commit: `test(jobs): a suite deletes only the rows it created`.
 
 ### Task 2: Same for jobs.ownership.test.ts
 
