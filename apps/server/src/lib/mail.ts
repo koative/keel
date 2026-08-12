@@ -2,15 +2,19 @@ import { env, SANDBOX_MAIL_FROM } from "@keel/env/server";
 import type { MailConfig } from "@keel/mail/send";
 
 /**
- * The three deployment inputs `resolveMailConfig` reads.
+ * The four deployment inputs `resolveMailConfig` reads.
  *
  * Taken as a parameter rather than closed over so the startup guard below can be
  * exercised without a process-wide environment: the guard is the only reason
  * this function exists, and a guard nobody has seen fire is not a guard.
+ *
+ * NODE_ENV is here because one of the guards is about the deployment rather than
+ * the driver: `log` is correct on a laptop and a credential leak on a server.
  */
 export interface MailEnv {
 	MAIL_DRIVER: "log" | "resend";
 	MAIL_FROM: string;
+	NODE_ENV: "development" | "production" | "test";
 	RESEND_API_KEY?: string | undefined;
 }
 
@@ -26,6 +30,26 @@ export interface MailEnv {
  * to boot is louder and cheaper than either silent alternative.
  */
 export function resolveMailConfig(source: MailEnv = env): MailConfig {
+	// The log driver prints `message.text` and `message.html` in full, and a
+	// verification or password-reset body is a live one-time link — the same
+	// payload `tasks.ts` sweeps out of the job table early because it is "a live
+	// one-time link at rest". Container logs are retained and aggregated far more
+	// widely than the database, so on a server that dump is a credential store
+	// nobody decided to run. Nothing else refuses it: `.env.example` ships
+	// MAIL_DRIVER=log, the production compose file accepts it, and the deployment
+	// that results looks completely healthy.
+	//
+	// No opt-out key. A key whose only job is to disarm this would have to be
+	// documented to be usable, and a documented way to log credentials is one that
+	// gets used. A host that reports production and must not mail real people uses
+	// `resend` with its own key and its own verified domain — which is also the
+	// only way to find out whether delivery works before real users do.
+	if (source.NODE_ENV === "production" && source.MAIL_DRIVER === "log") {
+		throw new Error(
+			"MAIL_DRIVER=log is refused when NODE_ENV=production. The log driver prints every message to stdout, and a verification or password-reset message holds a live one-time link, so each one would be written to the container logs. Set NODE_ENV to the environment this deployment actually is, or set MAIL_DRIVER to resend with a RESEND_API_KEY and a verified MAIL_FROM."
+		);
+	}
+
 	if (source.MAIL_DRIVER === "resend") {
 		if (!source.RESEND_API_KEY) {
 			throw new Error(
