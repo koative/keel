@@ -42,12 +42,12 @@
 
 **Files:** root `package.json`, `apps/web/package.json`, `packages/ui/package.json`
 
-- [ ] **Step 1:** Read `tools/check-catalog.ts` to understand exactly what it validates (it skips non-catalog-owned deps — after this plan, none of the 13 may remain skipped; re-read the skip logic to see if it also expects the catalog to own *all* workspace deps).
-- [ ] **Step 2:** Add the 13 entries to `workspaces.catalog` with their exact current literal versions (read them from the package.json files; do not guess).
-- [ ] **Step 3:** Switch each literal range to `catalog:` in the two package.json files. Keep the dev/runtime split as it is, except: if `packages/ui` lists the `shadcn` CLI in runtime `dependencies`, move it to `devDependencies` (the CLI is build tooling; its consumers shouldn't ship it) — verify no runtime code imports `shadcn` first.
-- [ ] **Step 4:** Run `bun install` (not frozen) to regenerate `bun.lock`, then `bun install --frozen-lockfile` to prove the lock is consistent. Confirm `git diff bun.lock` shows **no package version changes** — only the lockfile's representation of the same versions (or nothing at all).
-- [ ] **Step 5:** Run `bun tools/check-catalog.ts` — green. Run `bun run check-types` (turbo) — green.
-- [ ] **Step 6:** Commit: `chore(deps): the last literal ranges move into the catalog`.
+- [x] **Step 1:** Read `tools/check-catalog.ts` to understand exactly what it validates (it skips non-catalog-owned deps — after this plan, none of the 13 may remain skipped; re-read the skip logic to see if it also expects the catalog to own *all* workspace deps).
+- [x] **Step 2:** Add the 13 entries to `workspaces.catalog` with their exact current literal versions (read them from the package.json files; do not guess).
+- [x] **Step 3:** Switch each literal range to `catalog:` in the two package.json files. Keep the dev/runtime split as it is, except: if `packages/ui` lists the `shadcn` CLI in runtime `dependencies`, move it to `devDependencies` (the CLI is build tooling; its consumers shouldn't ship it) — verify no runtime code imports `shadcn` first.
+- [x] **Step 4:** Run `bun install` (not frozen) to regenerate `bun.lock`, then `bun install --frozen-lockfile` to prove the lock is consistent. Confirm `git diff bun.lock` shows **no package version changes** — only the lockfile's representation of the same versions (or nothing at all).
+- [x] **Step 5:** Run `bun tools/check-catalog.ts` — green. Run `bun run check-types` (turbo) — green.
+- [x] **Step 6:** Commit: `chore(deps): the last literal ranges move into the catalog`.
 
 ### Task 2: Dead runtime deps and the undocumented pin
 
