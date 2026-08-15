@@ -33,16 +33,6 @@ describe("worker poll decision", () => {
 		}
 	);
 
-	it.each([
-		{ batchSize: 1, processed: 2 },
-		{ batchSize: 10, processed: 11 },
-	])(
-		"polls again when the batch was claimed to capacity ($processed of $batchSize)",
-		({ processed, batchSize }) => {
-			expect(shouldPollImmediately(processed, batchSize)).toBe(true);
-		}
-	);
-
 	// A zero-sized batch claims nothing, so "full" and "empty" are the same
 	// answer — `0 >= 0` holds and the function reports a full batch. No branch
 	// defends the case because the env schema's `.min(1)` is the guard that

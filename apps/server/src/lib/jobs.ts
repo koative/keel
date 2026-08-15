@@ -1,4 +1,3 @@
-import { env } from "@keel/env/server";
 import {
 	type ClaimedJob,
 	claim,
@@ -65,7 +64,7 @@ const SETTLE_RETRY_BASE_MS = 100;
 export async function runOnce(
 	registry: JobRegistry,
 	workerId: string,
-	limit: number = env.WORKER_BATCH_SIZE
+	limit: number
 ): Promise<number> {
 	const claimed = await claim(workerId, limit);
 
