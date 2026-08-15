@@ -97,7 +97,7 @@ Full detail follows, grouped by category.
 - **Fix sketch**: Set an explicit `session.expiresIn` (e.g. 1 day) with Better Auth's sliding `updateAge`, so the value is a decision rather than an inherited default.
 
 ### SEC-08 Fixture literals shaped like live credentials
-- **Evidence**: `packages/crypto/src/seal.test.ts:7` — `"sk_live_51H8xQ2LkdIwHu7ix"` (Stripe live-secret shape); `packages/http/src/response.fixtures.ts:22` — `"postgres://admin:hunter2@10.0.0.4/prod"` (a deliberate leak-test fixture).
+- **Evidence**: `packages/crypto/src/seal.test.ts:7` — a literal of the form `"sk_" + "live_" + <20 alphanumerics>` (Stripe live-secret shape); `packages/http/src/response.fixtures.ts:22` — `"postgres://admin:<a well-known joke password>@<an RFC 1918 address>/prod"` (a deliberate leak-test fixture). Both are written here in pieces rather than verbatim: this file is tracked, so quoting them intact reproduced the exact strings SEC-08 exists to remove and kept every markdown-reading secret scanner tripping after the fix landed. Plan 015 records the shipped replacements.
 - **Impact**: Live-key-prefixed literals trip every secret scanner and invite copy-paste into real configs. Verified: no real credential is committed (only `.env.example`/`.env.test` are tracked, both clean).
 - **Effort**: S
 - **Risk**: LOW
