@@ -791,7 +791,7 @@ Same file, lines 7-9 — the first item of the numbered receiver order. Replace:
 cd apps/server && bun test src/lib/webhook.test.ts src/lib/webhook.replay.test.ts
 ```
 
-Expected: `26 pass, 0 fail` — 19 from Task 1 and 7 here.
+Expected: exit status 0 with `0 fail` across the two files — 18 cases in `webhook.test.ts` and 7 here. Assert the shape and the exit status, not a total: the next case added to either suite changes the number without changing whether the window holds.
 
 - [x] **Step 9: Prove the whole gate is green**
 
@@ -843,7 +843,7 @@ property no test can catch. A stale delivery pays one SHA-256 for that.
 \`NO_TIMESTAMP\` is the opt-out for a provider that transports no timestamp at
 all, and it is a named export rather than an optional field so that having no
 window cannot be reached by forgetting — it shows up in the diff and in a grep.
-26 pass across the two suites."
+25 pass across the two suites."
 ```
 
 ---
@@ -880,21 +880,33 @@ In `apps/server/src/lib/webhook.ts`, append to the doc comment on `verifySignatu
  *    string.
  * 2. **`enqueue`'s `dedupeKey` set to that same event id**, namespaced —
  *    `webhook:<provider>:<eventId>` — so a burst of provider retries collapses
- *    into the one job that has not started yet.
+ *    into the one job that has not settled yet.
  *
  * The second is not a substitute for the first, and the reason is in the index
- * rather than in the code: `job_dedupeKey_pending_idx` is unique only
- * `WHERE status = 'pending'` (`packages/db/src/schema/job.ts`). The moment a job
- * settles the key leaves the index and is usable again, which is exactly the
- * behaviour that makes it a debounce and a mutex — and exactly why it cannot
- * remember an event from ten minutes ago. A receiver that treats `dedupeKey` as
- * its replay guard is relying on a row it has already deleted.
+ * rather than in the code: `job_dedupeKey_unsettled_idx` is unique only
+ * `WHERE status IN ('pending', 'running')` (`packages/db/src/schema/job.ts`). The
+ * moment a job settles the key leaves the index and is usable again, which is
+ * exactly the behaviour that makes it a debounce and a mutex — and exactly why
+ * it cannot remember an event from ten minutes ago. A receiver that treats
+ * `dedupeKey` as its replay guard is relying on a guard the queue handed back
+ * when the job settled.
  *
  * The event id comes out of the payload, which means it is read after the
  * signature verified and never before. An id parsed from an unverified body is
  * an attacker-chosen primary key.
  */
 ```
+
+The block above is the comment as it stands at HEAD, not as this task first wrote
+it. What landed in `7ae598b` named `job_dedupeKey_pending_idx`, unique
+`WHERE status = 'pending'` — true when written, and untrue as soon as plan 024
+replaced that index with `job_dedupeKey_unsettled_idx` over `pending` and
+`running` (`packages/db/src/schema/job.ts:90-92`). A receiver author greps for the
+index the contract names, so the name has to be findable: corrected by
+`FixWebhookReceiver` in `c3af3a2` — verified here against
+`git show HEAD:apps/server/src/lib/webhook.ts`, lines 181-188. The Step 5 commit
+message below is left as the transcript of `7ae598b` and still carries the old
+name, because that is what was committed.
 
 - [x] **Step 2: Fix the documented receiver order in the README**
 
@@ -928,7 +940,7 @@ Post it to plan 021's author, or add it to that plan's file if 021 has not lande
 bun run fix && bun run check
 ```
 
-Expected: every turbo task successful, `26 pass` across the two webhook suites, suite count unchanged from Task 2, 16 architecture rules verified, migrations match. Comment lines do not count toward `noExcessiveLinesPerFile`, so the doc addition cannot push `webhook.ts` over the limit — but the run is what says so.
+Expected: every turbo task successful, both webhook suites green (`0 fail`, exit status 0), suite count unchanged from Task 2, 16 architecture rules verified, migrations match. Comment lines do not count toward `noExcessiveLinesPerFile`, so the doc addition cannot push `webhook.ts` over the limit — but the run is what says so.
 
 - [x] **Step 5: Commit**
 
@@ -968,8 +980,8 @@ sentence and is left alone; plan 021 owns that file's length and has the clause.
 - A `Date` that parsed to `NaN` is refused.
 - `NO_TIMESTAMP` verifies a delivery of any age, and appears nowhere except its own definition, its test and a receiver that has chosen it.
 - No early return sits between the HMAC and the freshness verdict: both are `const`s and the only branch is the final combine.
-- `apps/server/src/lib/webhook.replay.test.ts` and `apps/server/src/lib/webhook.fixtures.ts` exist, no digest literal is committed in either suite, and `26 pass, 0 fail` across the two webhook suites.
-- `verifySignature`'s doc comment names the event id as the `enqueue` dedupe key, requires a unique index on (provider, event id) as the durable guard, and says why the queue's partial index is not one.
+- `apps/server/src/lib/webhook.replay.test.ts` and `apps/server/src/lib/webhook.fixtures.ts` exist, no digest literal is committed in either suite, and `cd apps/server && bun test src/lib/webhook.test.ts src/lib/webhook.replay.test.ts` exits 0 with `0 fail` across the two files. Verified at `d10a39e`: `25 pass, 0 fail, 31 expect() calls, Ran 25 tests across 2 files`, exit status 0. The criterion is deliberately the shape and the exit status: this plan first wrote `26 pass`, a number the suites never reported — the Task 2 commit `ddbc6a7` says 25 — and a pinned total is falsified by the next case anyone adds.
+- `verifySignature`'s doc comment names the event id as the `enqueue` dedupe key, requires a unique index on (provider, event id) as the durable guard, and says why the queue's partial index is not one — naming the index that exists, `job_dedupeKey_unsettled_idx` over `pending` and `running` (`apps/server/src/lib/webhook.ts:181-188` at HEAD, after `c3af3a2`; the name this plan shipped was retired by plan 024, see Task 3 Step 1).
 - `README.md`'s webhook paragraph describes the window and the event id. `AGENTS.md` is untouched and its replacement clause has been handed to plan 021.
 - `bun run check` passes.
 

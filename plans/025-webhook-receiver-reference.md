@@ -46,9 +46,9 @@
 | `apps/server/src/modules/webhooks/index.ts` | **Create.** Module index. |
 | `apps/server/src/modules/webhooks/internal/webhooks.routes.test.ts` | **Create.** Signature/replay/dedupe/tenancy cases. |
 | `apps/server/src/modules/webhooks/webhooks.repository.ts` | **Create** (deviation: the table lists no repository, but the linter forbids a handler from reaching `@keel/db` — "An HTTP layer may not reach the database" — so the module owns one at module root, mirroring `projects.repository.ts`; the handler and the worker handler both call it). |
-| `apps/server/src/modules/webhooks/internal/webhooks.worker.ts` | **Create** (deviation: the worker-side `webhook.process` handler, exported through the module index so `worker.ts` can register it without reaching into the module — the entry-point block forbids deep `@/modules/...` imports). |
+| `apps/server/src/modules/webhooks/internal/webhooks.worker.ts` | **Create** (deviation: the worker-side `webhook.process` handler, exported through the module index so the registry can register it without reaching into the module — the entry-point block forbids deep `@/modules/...` imports). |
 | `packages/env/src/server.ts`, `.env.example`, `docker-compose.prod.yml`, `.env.test` | **Modify** (deviation: the receiver needs a shared secret; `WEBHOOK_SECRET` is added optional with a per-delivery `resolveWebhookSecret` guard — the storage/AI pattern. check-env keeps the four env files in step, and the route tests need the key set to the fixture's `SECRET`). |
-| `apps/server/src/worker.ts` | **Modify.** Register a `webhook.process` handler (a job kind that runs the persisted event — minimal: mark processed via the ledger pattern or just settle; check how `ai.generate`'s handler shape works and mirror the minimal honest version). |
+| `apps/server/src/registry.ts` | **Modify.** Register the `webhook.process` handler at module scope beside `mail.send` and `ai.generate` (a job kind that runs the persisted event — minimal: mark it processed). This plan wrote the registration into `apps/server/src/worker.ts`, and put it in the wrong place; `d89ae4a` split the map out into `registry.ts` so a test can reach it. See the Follow-up. |
 | `apps/server/src/app.ts` | **Modify.** Mount under `/api/webhooks`. |
 | `packages/db/src/jobs.ts` or `apps/server/src/lib/jobs.ts` | Only if a job kind constant is needed — check the registry pattern first. |
 
@@ -71,18 +71,18 @@
   2. Parse `signedAt`/`signedPrefix` from the header; call `verifySignature(...)`. False → return the envelope 401 (or 400 — check `@keel/http`'s helpers; pick the status that tells the provider "don't retry this" vs "retry"; providers retry 5xx, so a bad signature must be 4xx). Chose 401 `unauthorized()` for a signature that fails, 400 `badRequest()` for a grammar violation (timestamped provider that omitted its timestamp), 503 `serviceUnavailable()` when `WEBHOOK_SECRET` is unset (the storage module's `storageOf` shape — a config gap is retryable once the key ships).
   3. Parse the body for the event id (after verification only — plan 022: "An id parsed from an unverified body is an attacker-chosen primary key").
   4. Persist the raw payload with (provider, eventId) — rely on the unique index; a duplicate insert → the row exists → treat as already-handled → 200 (idempotent replay, no new job).
-  5. `enqueue({ dedupeKey: \`webhook:${provider}:${eventId}\`, kind: "webhook.process", payload: { provider, eventId, receivedAt } })` — the payload references the persisted row, not the raw bytes (keep the raw body out of the job row? read how the job payload is persisted — plan 022's receiver order says persist then enqueue referencing that payload; decide whether the job carries the raw body or an id and say why). Chose the natural key `{ provider, eventId, receivedAt }`: jsonb would normalise the body, and the worker re-reads the row by the same unique key the durable index holds. Enqueue runs **only when the insert created the row** — the settled-dedupeKey trap from plan 022's doc comment.
+  5. `enqueue({ dedupeKey: \`webhook:${provider}:${eventId}\`, kind: "webhook.process", payload: { provider, eventId } })` — the payload references the persisted row, not the raw bytes (keep the raw body out of the job row? read how the job payload is persisted — plan 022's receiver order says persist then enqueue referencing that payload; decide whether the job carries the raw body or an id and say why). Chose the natural key `{ provider, eventId }`: jsonb would normalise the body, and the worker re-reads the row by the same unique key the durable index holds. This plan also put `receivedAt` in the payload; nothing read it, and `e1df2fb` dropped it. Enqueue runs **only when the insert created the row** — the settled-dedupeKey trap from plan 022's doc comment.
   6. Return 200 with `{ data: { eventId } }`.
 - [x] **Step 4:** Mount in `app.ts` under `/api/webhooks`, mirroring the projects internal mount (chained after `/api/ai`, keeping every landed mount).
-- [x] **Step 5:** Worker: register a `webhook.process` handler that does the minimal honest thing (read the persisted event, mark it processed — check whether the ledger pattern (`hasUsageForJob`) fits or whether a simple `processed_at` column on webhook-event is cleaner; choose the smallest durable marker and comment it). The handler must be idempotent (it may run twice — that is the queue's contract). Chose the `processed_at` column (added in Task 1): one nullable timestamp, set by an `UPDATE … WHERE processed_at IS NULL` whose rowcount is the idempotency — a ledger table for a marker this small would be ceremony. `webhookProcess` lives in `internal/webhooks.worker.ts`, exported through the module index, registered in `worker.ts` as `registry.set("webhook.process", webhookProcess)`.
+- [x] **Step 5:** Worker: register a `webhook.process` handler that does the minimal honest thing (read the persisted event, mark it processed — check whether the ledger pattern (`hasUsageForJob`) fits or whether a simple `processed_at` column on webhook-event is cleaner; choose the smallest durable marker and comment it). The handler must be idempotent (it may run twice — that is the queue's contract). Chose the `processed_at` column (added in Task 1): one nullable timestamp, set by an `UPDATE … WHERE processed_at IS NULL` whose rowcount is the idempotency — a ledger table for a marker this small would be ceremony. `webhookProcess` lives in `internal/webhooks.worker.ts` and is exported through the module index (`apps/server/src/modules/webhooks/index.ts:13`). **The registration this step claims did not work.** `registry.set("webhook.process", webhookProcess)` went inside the `ai.generate` handler's body in `worker.ts`, so the kind existed only after an AI job had run; `d89ae4a` moved it to module scope in `apps/server/src/registry.ts:117`, where `worker.ts:5` imports it. See the Follow-up.
 - [x] **Step 6:** Tests (mirror `projects.routes.test.ts` + the replay suite's fixture approach — reuse `apps/server/src/lib/webhook.fixtures.ts`'s `delivery()` if its provider shape matches, or build a small fixture in the module): bad signature → 4xx; valid fresh delivery → 200 and exactly one webhook-event row + one pending job with the right dedupeKey; replay of the same event → 200, no second row, no second job (dedupeKey collapse + unique index both proven); delivery outside the 5-minute window → 4xx; missing timestamp provider (`NO_TIMESTAMP`) → verifies and dedupes via the unique index. Tenancy is not the module's concern (documented) — no org tests needed beyond the route being internal. The `bare` test deletes the settled job row before replaying, which is what proves the unique index — not the dedupeKey — is the replay guard; plus a worker test proving `webhookProcess` marks processed exactly once across two runs.
-- [x] **Step 7:** Run: `cd apps/server && bun test src/modules/webhooks/...` — green (7 pass / 0 fail). Biome clean on the module; `tsc --noEmit` shows only the pre-existing `worker.ts:202` drain-line error that clean HEAD already has; `bun tools/check-env.ts` green (32 keys).
+- [x] **Step 7:** Run: `cd apps/server && bun test src/modules/webhooks/` — green when this task landed (7 pass / 0 fail). Assert the exit status and `0 fail`, not the total: the module now carries 9 cases across two files (`internal/webhooks.routes.test.ts` and `internal/webhooks.routes.failure.test.ts`, added by the fixes in the Follow-up), both `describe.skipIf(!ready)` so they need the test DB up. Biome clean on the module; `bun tools/check-env.ts` green (32 keys).
 - [x] **Step 8:** Commit: `feat(server): the reference webhook receiver`.
 
 ## Done when
 
 - `POST /api/webhooks/:provider` verifies over the raw bytes, persists under a unique (provider, event id), enqueues with the namespaced dedupeKey, returns 200; replays are idempotent with no double execution.
-- The worker has a minimal `webhook.process` handler.
+- The worker has a minimal `webhook.process` handler. **This was false when it was ticked** and is true now: the handler is registered at module scope in `apps/server/src/registry.ts:117`, the map `worker.ts:5` imports, and `apps/server/src/registry.test.ts:29-35` fails if the kind is missing. The Follow-up records what was wrong.
 - Migration 0007 applies; check-migrations green; all module tests pass.
 
 ## Out of scope
@@ -90,3 +90,40 @@
 - A `/v1` webhook surface (frozen-contract decision).
 - Provider-specific webhook integrations (Stripe/GitHub/Slack) — the receiver is a generic reference implementation; a real provider integration is a follow-up.
 - **SEC-05** (the replay window itself) — already landed in plan 022.
+
+## Follow-up (executed, commits `d89ae4a`, `5db7081`, `411f30f`, `e1df2fb`)
+
+**The `webhook.process` registration was unreachable.** Task 2 Step 5's
+`registry.set("webhook.process", webhookProcess)` was written one level inside the
+`ai.generate` handler's body in `apps/server/src/worker.ts`, so the kind was
+registered as a side effect of an AI job running and a freshly started worker held
+two kinds instead of three. Every delivery this plan's receiver enqueued was then
+claimed by that worker and burned its attempts against the unregistered-kind guard
+in `apps/server/src/lib/jobs.ts`, so the pipeline this plan exists to deliver did
+not run at all — while the Done-when clause "the worker has a minimal
+`webhook.process` handler" sat ticked. Nothing caught it because nothing could:
+`worker.ts` starts a poll loop at module scope, so no test could import the map,
+and Task 2 Step 6's coverage called `webhookProcess` directly, which passes
+whether or not the worker can reach it. Biome had nothing to object to either.
+
+Fixed in `d89ae4a`: the map moved to `apps/server/src/registry.ts`, importable
+because it no longer starts anything, and `worker.ts:5` imports it. What proves it
+now is `apps/server/src/registry.test.ts`: a case per kind (`:19-24`) and
+`registers exactly the kinds this worker ships` (`:29-35`), a sorted `toEqual`
+against `["ai.generate", "mail.send", "webhook.process"]`, so a registration that
+moves somewhere unreachable makes the list short and the suite red, and a new kind
+has to be declared here. Verified: `cd apps/server && bun test src/registry.test.ts`
+→ 4 pass / 0 fail.
+
+**Three receiver corrections, reported by `FixWebhookReceiver` and landed in the
+same module.** `5db7081`: when `enqueue` threw after the insert committed, the row
+stayed and the provider's retry got a 200 with no job — the event was persisted and
+permanently unprocessed. The receiver now deletes the row and rethrows, so the
+response is a 500 the provider will retry and nothing is persisted; the verify →
+decode → persist → enqueue → 200 order and every other status are unchanged.
+`411f30f`: a verified payload that is not valid UTF-8 is now a 400 with nothing
+persisted, instead of a row holding U+FFFD-substituted bytes — which would have
+broken the "exact bytes" property Task 1 chose `text` for. `e1df2fb`: `receivedAt`
+left the `webhook.process` payload, unread. Both failure paths are covered in
+`apps/server/src/modules/webhooks/internal/webhooks.routes.failure.test.ts:59`
+and `:77`.
