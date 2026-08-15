@@ -82,7 +82,7 @@ Everything below was checked against the working tree at `39fd32c`, not copied f
 
 ## Global Constraints
 
-- `bun run check` must pass at the end of every task. It runs typecheck, every suite, Biome/Ultracite, catalog drift, test-naming, 16 architecture rules and migration drift.
+- `bun run check` must pass at the end of every task. It runs typecheck, every suite, Biome/Ultracite, catalog drift, test-naming, the architecture rules and migration drift.
 - All code, comments and commit messages in English.
 - No file over 200 **code** lines (Biome `noExcessiveLinesPerFile`; comment lines do not count).
 - **No environment variable gets a default** — not in `packages/env`, not in a compose file, not behind a `??`. `${VAR:-}` is not a default: it forwards an absent variable as the empty string, and `emptyStringAsUndefined: true` (`packages/env/src/server.ts:27`) turns it back into `undefined` on the other side. `${VAR:-something}` would be a default and is prohibited.

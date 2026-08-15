@@ -77,7 +77,7 @@ So the signal handed to `fetch` errors the response body stream too: `await resp
 
 ## Global Constraints
 
-- `bun run check` must pass at the end of the task. It runs typecheck, every suite, Biome/Ultracite, catalog drift, test-naming, 16 architecture rules and migration drift.
+- `bun run check` must pass at the end of the task. It runs typecheck, every suite, Biome/Ultracite, catalog drift, test-naming, the architecture rules and migration drift.
 - All code, comments and commit messages in English.
 - No file over 200 **code** lines (Biome `noExcessiveLinesPerFile`, `biome.jsonc:68-73`; comment lines and multi-line template literals do not count). `packages/mail/src/**` gets no exemption from it.
 - **No environment variable gets a default.** This plan adds no environment variable at all — see the first bullet of "Do not" for why.

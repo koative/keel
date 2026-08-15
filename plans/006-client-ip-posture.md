@@ -106,7 +106,7 @@ These four places assert the opposite, and all four are false:
 
 ## Global Constraints
 
-- `bun run check` must pass at the end of every task. It runs typecheck, every suite, Biome/Ultracite, catalog drift, test-naming, 16 architecture rules and migration drift.
+- `bun run check` must pass at the end of every task. It runs typecheck, every suite, Biome/Ultracite, catalog drift, test-naming, the architecture rules and migration drift.
 - All code, comments and commit messages in English.
 - No file over 200 **code** lines (Biome `noExcessiveLinesPerFile`; comment lines do not count).
 - **No environment variable gets a default.** `TRUSTED_IP_HEADER` and `TRUSTED_PROXIES` stay `.optional()` in `packages/env/src/server.ts` and stay guarded at the point of use by a `resolve*` that throws naming them. Do not add `.default(…)`, do not add a `??` fallback, do not invent a header name.
@@ -311,7 +311,7 @@ Expected: `6 pass, 0 fail`.
 bun run check
 ```
 
-Expected: every turbo task successful; `check-naming` reports one more suite than before (33 at `39fd32c`, so 34 — higher if another plan's suite has already landed; the exit code is the gate, not the number); `check-rules` reports 16 architecture rules verified; migrations match.
+Expected: every turbo task successful; `check-naming` reports one more suite than the run before this task (the exit code is the gate, not the number — it was 33 before and 34 after at `39fd32c`, and is 51 at HEAD); `check-rules` exits 0; migrations match.
 
 - [x] **Step 6: Commit**
 
@@ -432,7 +432,7 @@ followed by the listening line. Ctrl-C to stop. A fresh checkout must keep booti
 bun run check
 ```
 
-Expected: unchanged from Task 1 — every task successful, same suite count, 16 architecture rules, migrations match. Nothing in the suite imports `src/index.ts`, so no test result moves.
+Expected: unchanged from Task 1 — every task successful, same suite count, `check-rules` exits 0, migrations match. Nothing in the suite imports `src/index.ts`, so no test result moves.
 
 - [x] **Step 7: Commit**
 

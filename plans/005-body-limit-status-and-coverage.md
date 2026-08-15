@@ -79,7 +79,7 @@
 
 ## Global Constraints
 
-- `bun run check` must pass at the end of every task. It runs typecheck, every suite, Biome/Ultracite, catalog drift, test-naming, 16 architecture rules and migration drift.
+- `bun run check` must pass at the end of every task. It runs typecheck, every suite, Biome/Ultracite, catalog drift, test-naming, the architecture rules and migration drift.
 - All code, comments and commit messages in English.
 - No file over 200 **code** lines (Biome `noExcessiveLinesPerFile`; comment lines and multi-line template literal interiors do not count, blank lines do). Measured before this plan: `packages/http/src/response.ts` ≈ 155, `errors.ts` ≈ 76, `status.ts` ≈ 19, `security.ts` ≈ 36, `projects.v1.routes.ts` ≈ 131, and **`projects.v1.routes.contract.test.ts` ≈ 187** — that last one is why Task 1 extends an existing table there instead of adding an `it` block. Test files are not exempt from the rule.
 - **No environment variable gets a default.** This plan adds no key. `BODY_LIMIT_BYTES` already exists and is already required in all four places (`packages/env/src/server.ts:51`, `.env.example:84`, `.env.test:42`, `docker-compose.prod.yml:41`). Do not give it a `??`, and do not read it through `process.env`.
