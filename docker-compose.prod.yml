@@ -88,15 +88,15 @@ x-app-env: &app-env
   # and worker share this block and neither serves an authenticated request.
   TRUSTED_IP_HEADER: ${TRUSTED_IP_HEADER:-}
   TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+  # Pinned rather than inherited from the base image, because the Better Auth tables
+  # use `timestamp` without a zone while domain tables use `timestamptz`. A base
+  # image that changes its default would silently desync the two.
+  TZ: UTC
   # The shared key the webhook receiver verifies against. Optional because
   # receiving webhooks is opt-in; the receiver refuses a delivery with a 503
   # naming this key when it is unset, so an unset key is loud, never a silent
   # unverified accept.
   WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
-  # Pinned rather than inherited from the base image, because the Better Auth tables
-  # use `timestamp` without a zone while domain tables use `timestamptz`. A base
-  # image that changes its default would silently desync the two.
-  TZ: UTC
   WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:?WORKER_BATCH_SIZE is required}
   WORKER_POLL_MS: ${WORKER_POLL_MS:?WORKER_POLL_MS is required}
 

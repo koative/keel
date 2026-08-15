@@ -222,6 +222,19 @@ for (const key of forwarded.keys()) {
 	}
 }
 
+// The block is alphabetical so it reads side by side with the schema, which is
+// too. Nothing else enforces it, so an inserted key lands wherever the diff was
+// convenient.
+const order = [...forwarded.keys()];
+const sorted = [...order].sort();
+const misplaced = order.findIndex((key, index) => key !== sorted[index]);
+
+if (misplaced !== -1) {
+	problems.push(
+		`${COMPOSE}: x-app-env lists ${order[misplaced]} out of alphabetical order. The block is sorted so it can be read against the \`server: {}\` object in ${SCHEMA}, which is sorted too.`
+	);
+}
+
 if (problems.length > 0) {
 	for (const problem of problems) {
 		console.error(problem);
