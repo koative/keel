@@ -19,7 +19,8 @@ import {
  * `LEAKED_SECRET` is thrown deliberately: the point of `/crash` is to prove the
  * string reaches the log and never the response.
  */
-export const LEAKED_SECRET = "postgres://admin:change-me@db.example.invalid/prod";
+export const LEAKED_SECRET =
+	"postgres://admin:change-me@db.example.invalid/prod";
 
 export const testApp = new Hono()
 	.use(evlog())

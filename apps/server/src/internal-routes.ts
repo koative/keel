@@ -16,5 +16,7 @@ import { internalProjectRoutes } from "@/modules/projects";
  * types. A route that should be typed in the client belongs here; `app` keeps
  * the rest — the `/v1` contract, the probes, Better Auth.
  */
-export const internalRoutes = new Hono<AppEnv>()
-	.route("/api/projects", internalProjectRoutes);
+export const internalRoutes = new Hono<AppEnv>().route(
+	"/api/projects",
+	internalProjectRoutes
+);

@@ -72,7 +72,7 @@ export function createClient(): TestClient {
 export async function signUpWithoutOrganization(): Promise<string> {
 	const email = `${crypto.randomUUID()}@keel.test`;
 	const password = "correct-horse-battery-staple";
-	const signUp = await app.request("/api/auth/sign-up/email", {
+	const created = await app.request("/api/auth/sign-up/email", {
 		body: JSON.stringify({
 			email,
 			name: "Test Owner",
@@ -82,9 +82,9 @@ export async function signUpWithoutOrganization(): Promise<string> {
 		method: "POST",
 	});
 
-	if (!signUp.ok) {
+	if (!created.ok) {
 		throw new Error(
-			`sign-up failed (status ${signUp.status}): ${await signUp.text()}`
+			`sign-up failed (status ${created.status}): ${await created.text()}`
 		);
 	}
 
@@ -96,7 +96,10 @@ export async function signUpWithoutOrganization(): Promise<string> {
 	 * comes from the real sign-in route, so the flow a browser runs after the
 	 * link is the one the guards below exercise.
 	 */
-	await db.update(user).set({ emailVerified: true }).where(eq(user.email, email));
+	await db
+		.update(user)
+		.set({ emailVerified: true })
+		.where(eq(user.email, email));
 
 	const response = await app.request("/api/auth/sign-in/email", {
 		body: JSON.stringify({ email, password }),

@@ -9,6 +9,6 @@
  * Nothing imports this module at runtime: it exists only to give the bundle
  * a surface that stops at what the client is allowed to see.
  */
-import { internalRoutes } from "@/internal-routes";
+import type { internalRoutes } from "@/internal-routes";
 
 export type AppType = typeof internalRoutes;

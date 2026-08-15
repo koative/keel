@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 /**
  * Fails when the typed-client declaration bundle cannot be checked without
  * `skipLibCheck`.
@@ -11,9 +14,6 @@
  * Hono's schema types, so the failure names the disease.
  */
 import { $ } from "bun";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
 
 const BUNDLE = "apps/server/types/app.d.mts";
 
@@ -54,13 +54,13 @@ try {
 		JSON.stringify(
 			{
 				compilerOptions: {
-					target: "ESNext",
+					lib: ["ESNext", "DOM"],
 					module: "ESNext",
 					moduleResolution: "bundler",
-					lib: ["ESNext", "DOM"],
-					strict: true,
-					skipLibCheck: false,
 					noEmit: true,
+					skipLibCheck: false,
+					strict: true,
+					target: "ESNext",
 					types: [],
 				},
 				files: [bundle],
@@ -76,12 +76,12 @@ try {
 		console.error(
 			`${BUNDLE} does not typecheck with skipLibCheck off:\n` +
 				result.stderr.toString() +
-				`\nRegenerate it from app-type.ts: bun run build:types -F server`
+				"\nRegenerate it from app-type.ts: bun run build:types -F server"
 		);
 		process.exit(1);
 	}
 } finally {
-	await rm(dir, { recursive: true, force: true });
+	await rm(dir, { force: true, recursive: true });
 }
 
 console.log(

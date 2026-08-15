@@ -21,7 +21,9 @@ export const Route = createFileRoute("/login")({
 			.string()
 			.optional()
 			.refine(
-				(value) => value === undefined || (value.startsWith("/") && !value.startsWith("//")),
+				(value) =>
+					value === undefined ||
+					(value.startsWith("/") && !value.startsWith("//"))
 			),
 	}),
 });

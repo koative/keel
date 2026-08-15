@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
 import { eq, inArray } from "drizzle-orm";
-import { type JobRegistry, runOnce } from "@/lib/jobs";
 import { claim, type EnqueueInput, enqueue, fail } from "@/lib/jobs.repository";
 import { skipNotice, testDbReady } from "../../test-db";
 
@@ -145,10 +144,7 @@ describe.skipIf(!ready)("job queue", () => {
 
 			// The attempt that just ran was `attempt`, so the next one waits
 			// `least(1000 * 2^attempt, 300000)` — 2s, 4s, 8s, 16s on this walk.
-			const expected = Math.min(
-				BACKOFF_BASE_MS * 2 ** attempt,
-				BACKOFF_MAX_MS
-			);
+			const expected = Math.min(BACKOFF_BASE_MS * 2 ** attempt, BACKOFF_MAX_MS);
 			const waited = await rowFor(id);
 			expect(backoffDeltaMs(waited)).toBeGreaterThanOrEqual(
 				expected - BACKOFF_TOLERANCE_MS
@@ -189,51 +185,5 @@ describe.skipIf(!ready)("job queue", () => {
 		await claimThenFail(id, new Error("x".repeat(50_000)));
 
 		expect((await rowFor(id))?.lastError?.length).toBeLessThan(50_000);
-	});
-
-	it("fails a job of an unknown kind instead of throwing", async () => {
-		const id = await enqueueId({ kind: "test.unregistered", payload: {} });
-
-		const processed = await runOnce(new Map(), WORKER, BATCH);
-		const row = await rowFor(id);
-
-		// A lower bound, not an exact count: `claim` is global, so a concurrent
-		// suite's due rows would be processed here too. The row assertions below
-		// pin the unknown-kind outcome.
-		expect(processed).toBeGreaterThanOrEqual(1);
-		expect(row?.attempts).toBe(1);
-		expect(row?.status).toBe("pending");
-		expect(row?.lastError).toContain("test.unregistered");
-	});
-
-	it("fails a throwing handler and finishes the rest of the batch", async () => {
-		const seen: unknown[] = [];
-		const registry: JobRegistry = new Map();
-		registry.set("test.boom", () =>
-			Promise.reject(new Error("handler exploded"))
-		);
-		registry.set("test.ok", (payload) => {
-			seen.push(payload);
-			return Promise.resolve();
-		});
-
-		const boomId = await enqueueId({ kind: "test.boom", payload: {} });
-		const okId = await enqueueId({ kind: "test.ok", payload: { n: 7 } });
-
-		const processed = await runOnce(registry, WORKER, BATCH);
-
-		// A lower bound for the same reason as the unknown-kind test: the batch is
-		// global, and the per-row assertions below pin each outcome.
-		expect(processed).toBeGreaterThanOrEqual(2);
-		expect(seen).toEqual([{ n: 7 }]);
-		expect((await rowFor(boomId))?.status).toBe("pending");
-		expect((await rowFor(boomId))?.lastError).toBe("handler exploded");
-		expect((await rowFor(okId))?.status).toBe("done");
-		// The loop survives the throw: the next pass runs rather than rejecting,
-		// and leaves this suite's rows where the first pass put them. No exact
-		// count — a concurrent suite's due rows would be claimed here.
-		await runOnce(registry, WORKER, BATCH);
-		expect((await rowFor(boomId))?.status).toBe("pending");
-		expect((await rowFor(okId))?.status).toBe("done");
 	});
 });

@@ -94,21 +94,23 @@ describe.skipIf(!ready)("retry backoff", () => {
 	// asserts the exact wait: 1s, 2s, 4s, ..., 256s, then 300s as the cap
 	// binds at attempt 9 and holds on the next attempt.
 	it("doubles each attempt and caps the wait at five minutes", async () => {
-		for (let attempt = 0; attempt < 11; attempt += 1) {
-			const id = await stageRung(attempt);
+		// Each rung owns its own row, so they stage concurrently; the delta is
+		// measured next to its own `fail` rather than after the batch, which keeps
+		// the drift a single select wide instead of eleven.
+		const rungs = await Promise.all(
+			Array.from({ length: 11 }, async (_, attempt) => {
+				const id = await stageRung(attempt);
 
-			await fail(id, WORKER, new Error("boom"));
+				await fail(id, WORKER, new Error("boom"));
 
-			const expected = Math.min(
-				BACKOFF_BASE_MS * 2 ** attempt,
-				BACKOFF_MAX_MS
-			);
-			expect(backoffDeltaMs(await rowFor(id))).toBeGreaterThanOrEqual(
-				expected - BACKOFF_TOLERANCE_MS
-			);
-			expect(backoffDeltaMs(await rowFor(id))).toBeLessThanOrEqual(
-				expected + BACKOFF_TOLERANCE_MS
-			);
+				return { attempt, deltaMs: backoffDeltaMs(await rowFor(id)) };
+			})
+		);
+
+		for (const { attempt, deltaMs } of rungs) {
+			const expected = Math.min(BACKOFF_BASE_MS * 2 ** attempt, BACKOFF_MAX_MS);
+			expect(deltaMs).toBeGreaterThanOrEqual(expected - BACKOFF_TOLERANCE_MS);
+			expect(deltaMs).toBeLessThanOrEqual(expected + BACKOFF_TOLERANCE_MS);
 		}
 	});
 });
