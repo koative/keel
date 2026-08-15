@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, like } from "drizzle-orm";
 import { skipNotice, testDbReady } from "../../../../test-db";
 import {
 	createClient,
@@ -32,8 +32,11 @@ afterEach(async () => {
 	}
 });
 
-/** A unique key per run, so a previous run's pending row cannot collapse it. */
-const dedupeKey = () => `ai:${crypto.randomUUID()}`;
+/**
+ * A unique key per run, so a previous run's pending row cannot collapse it. Bare
+ * rather than namespaced: the handler is what prefixes the stored key.
+ */
+const dedupeKey = () => crypto.randomUUID();
 
 const prompt = () => `Summarise this document: ${crypto.randomUUID()}`;
 
@@ -142,13 +145,40 @@ describe.skipIf(!ready)("internal ai routes", () => {
 		expect(secondBody.data.created).toBe(false);
 		expect(secondBody.data.jobId).toBeNull();
 
-		// One row carries the key, not two — the collapse is in the database.
+		// One row carries the key, not two — the collapse is in the database. The
+		// stored key is the caller's under its tenant prefix, so the client's key
+		// is matched as a suffix rather than whole.
 		const rows = await db
 			.select({ id: job.id })
 			.from(job)
-			.where(eq(job.dedupeKey, key));
+			.where(like(job.dedupeKey, `%:${key}`));
 		expect(rows).toHaveLength(1);
 		staged.push(firstBody.data.jobId ?? "");
+	});
+
+	it("gives two organizations their own job for one shared key", async () => {
+		const other = createClient();
+		other.cookie = await signUp();
+		const key = dedupeKey();
+
+		const mine = await api.post("/api/ai/generate", {
+			dedupeKey: key,
+			prompt: prompt(),
+		});
+		const theirs = await other.post("/api/ai/generate", {
+			dedupeKey: key,
+			prompt: prompt(),
+		});
+		const mineBody = await api.body<Envelope<Generation>>(mine);
+		const theirsBody = await api.body<Envelope<Generation>>(theirs);
+
+		// `dedupe_key` is globally unique and `job` is not tenant-scoped, so an
+		// unscoped key would make the second organization's generation collapse
+		// into a job belonging to the first — never run, never readable.
+		expect(mineBody.data.created).toBe(true);
+		expect(theirsBody.data.created).toBe(true);
+		expect(theirsBody.data.jobId).not.toBe(mineBody.data.jobId);
+		staged.push(mineBody.data.jobId ?? "", theirsBody.data.jobId ?? "");
 	});
 
 	it("queues again when no dedupe key is given", async () => {

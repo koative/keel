@@ -16,9 +16,12 @@ export const generateSchema = z.object({
 	 * user asked for another answer — the queue collapses a repeat of a keyed
 	 * job that is still in flight, and it never invents a key of its own.
 	 * Omitting one costs nothing until a retry: the same prompt enqueued again
-	 * runs the work again instead of joining it. A name like
-	 * `ai:<organizationId>:<prompt-hash>` follows the `domain:owner:what`
-	 * style the mail kinds use.
+	 * runs the work again instead of joining it.
+	 *
+	 * Whatever is passed is stored under the session's organization, as
+	 * `ai:<organizationId>:<key>`, so the key only has to be unique within the
+	 * caller's own tenant — two organizations naming the same thing the same way
+	 * still get a generation each.
 	 */
 	dedupeKey: z.string().min(1, "dedupeKey cannot be empty").optional(),
 	prompt: z
