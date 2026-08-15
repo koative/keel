@@ -11,8 +11,10 @@ const PREFLIGHT_HEADERS = {
 // A body stream that rejects is what a client vanishing mid-upload looks like from
 // inside the server. It surfaces while `requestBodyLimit` is counting the body,
 // above every route, so nothing but `app.onError` can answer it. The thrown text
-// reads like the connection string an unexpected failure really would carry.
-const THROWN_DETAIL = "postgres://keel:hunter2@db:5432/keel is unreachable";
+// reads like the connection string an unexpected failure really would carry, on
+// the reserved host and obviously-fake password `LEAKED_SECRET` already uses.
+const THROWN_DETAIL =
+	"postgres://admin:change-me@db.example.invalid/prod is unreachable";
 
 describe("app", () => {
 	it("answers the container health probe", async () => {
