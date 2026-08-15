@@ -90,32 +90,35 @@ const STRANDED_JOB_TIMEOUT_MS =
 let failedSweeps = 0;
 
 /**
- * Runs one retention sweep so its failure cannot take the rest of the run with
- * it. The settled-job sweep is last, and it is the one whose payloads are live
- * one-time links: before this wrapper existed, a sweep cancelled at the
- * statement budget rejected and the script died on the unhandled rejection —
- * `closePool()` never ran, the sweeps queued behind it never ran, and the next
- * cron tick met a larger table and failed sooner.
+ * Runs one maintenance statement so its failure cannot take the rest of the run
+ * with it. The settled-job sweep is one of the last, and it is the one whose
+ * payloads are live one-time links: before this wrapper existed, a statement
+ * cancelled at the budget rejected and the script died on the unhandled
+ * rejection — `closePool()` never ran, the work queued behind it never ran, and
+ * the next cron tick met a larger table and failed sooner.
  *
- * A failure is reported on stderr and counted as zero rows; the run continues,
- * and `failedSweeps` turns into a non-zero exit so the failure is visible to
- * whatever runs cron rather than looking like a clean run.
+ * A failure is reported on stderr and counted as `whenFailed`, which is why the
+ * zero value is the caller's to supply: the reclaim reports two numbers rather
+ * than a row count, and it is the least bounded statement of the lot. The run
+ * continues, and `failedSweeps` turns into a non-zero exit so the failure is
+ * visible to whatever runs cron rather than looking like a clean run.
  */
-async function guardedSweep(
+async function guardedSweep<T>(
 	name: string,
-	run: () => Promise<number>
-): Promise<number> {
+	run: () => Promise<T>,
+	whenFailed: T
+): Promise<T> {
 	try {
 		return await run();
 	} catch (error) {
 		failedSweeps += 1;
 		const message = error instanceof Error ? error.message : String(error);
 		process.stderr.write(`[tasks] ${name} sweep failed: ${message}\n`);
-		return 0;
+		return whenFailed;
 	}
 }
 
-const expiredKeys = await guardedSweep("idempotency", sweepExpiredKeys);
+const expiredKeys = await guardedSweep("idempotency", sweepExpiredKeys, 0);
 
 /**
  * A backstop, not the only pruner. Better Auth does delete these rows: its
@@ -129,20 +132,27 @@ const expiredKeys = await guardedSweep("idempotency", sweepExpiredKeys);
  * whatever was already behind. Dropping a stale counter is safe either way: a
  * missing row starts a fresh window, which is what an expired counter means.
  */
-const staleCounters = await guardedSweep("auth rate-limit", () =>
-	deleteInBatches({
-		primaryKey: rateLimit.id,
-		table: rateLimit,
-		where: lt(rateLimit.lastRequest, Date.now() - RATE_LIMIT_RETENTION_MS),
-	})
+const staleCounters = await guardedSweep(
+	"auth rate-limit",
+	() =>
+		deleteInBatches({
+			primaryKey: rateLimit.id,
+			table: rateLimit,
+			where: lt(rateLimit.lastRequest, Date.now() - RATE_LIMIT_RETENTION_MS),
+		}),
+	0
 );
 
-const idleBuckets = await guardedSweep("idle token bucket", () =>
-	sweepIdleBuckets(new Date(Date.now() - IDLE_BUCKET_RETENTION_MS))
+const idleBuckets = await guardedSweep(
+	"idle token bucket",
+	() => sweepIdleBuckets(new Date(Date.now() - IDLE_BUCKET_RETENTION_MS)),
+	0
 );
 
-const settledJobs = await guardedSweep("settled job", () =>
-	sweepSettledJobs(new Date(Date.now() - SETTLED_JOB_RETENTION_MS))
+const settledJobs = await guardedSweep(
+	"settled job",
+	() => sweepSettledJobs(new Date(Date.now() - SETTLED_JOB_RETENTION_MS)),
+	0
 );
 
 /**
@@ -151,8 +161,19 @@ const settledJobs = await guardedSweep("settled job", () =>
  * never at all under scale-to-zero — the same argument the header makes for the
  * sweeps. Overlapping runs stay harmless because the statement skips locked rows
  * and rechecks `status = 'running'` on the row it writes.
+ *
+ * Guarded like the sweeps, and for a sharper reason than symmetry: it is the one
+ * maintenance statement with no LIMIT, so it is the likeliest to be cancelled at
+ * the statement budget. Bare, that rejection was an unhandled rejection at
+ * module top level — the summary line below never printed even when all four
+ * sweeps had succeeded, `process.exitCode` was never set, and `closePool()`
+ * never ran.
  */
-const strandedJobs = await reclaimStrandedJobs(STRANDED_JOB_TIMEOUT_MS);
+const strandedJobs = await guardedSweep(
+	"stranded job",
+	() => reclaimStrandedJobs(STRANDED_JOB_TIMEOUT_MS),
+	{ exhausted: 0, requeued: 0 }
+);
 
 process.stdout.write(
 	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s), ${settledJobs} settled job(s); requeued ${strandedJobs.requeued} stranded job(s), exhausted ${strandedJobs.exhausted}\n`
