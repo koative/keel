@@ -6,7 +6,7 @@ import { createClient, type ErrorEnvelope } from "../../test-http";
 /**
  * Both halves are driven through the real `app`, not a throwaway Hono, because
  * both are facts about where the middleware sits. `requestBodyLimit` is mounted
- * at `app.ts:117`, above every route and above `requireUser`; the reference
+ * with `app.use("*", …)` above every route and above `requireUser`; the reference
  * page's policy only holds because `/reference` is registered above
  * `app.use("*", apiSecurityHeaders)`. A local app would assert the middleware
  * and prove nothing about the wiring, which is the part that can regress.
@@ -23,6 +23,9 @@ describe("requestBodyLimit", () => {
 	// a spoofed header.
 	const oversized = "x".repeat(env.BODY_LIMIT_BYTES);
 
+	// The client carries no cookie, so this is also the ordering assertion: a 401
+	// would mean `requireUser` ran first and an unauthenticated caller could still
+	// make the server buffer the whole body before anything refused it.
 	it("answers an oversized write with 413 in the standard envelope", async () => {
 		const client = createClient();
 
@@ -39,20 +42,6 @@ describe("requestBodyLimit", () => {
 		expect(body.error.code).toBe("PAYLOAD_TOO_LARGE");
 		expect(body.error.why).toContain(String(env.BODY_LIMIT_BYTES));
 		expect(body.error.requestId).toBeString();
-	});
-
-	// Mounted above `requireUser`, so the limit is not something a caller can
-	// spend a session's worth of work getting past. A 401 here would mean the
-	// guard ran first and an unauthenticated client could still make the server
-	// buffer the whole body.
-	it("rejects before the session guard, so no credentials are needed", async () => {
-		const client = createClient();
-
-		const body = await client.body<ErrorEnvelope>(
-			await client.post("/v1/projects", { name: oversized, slug: "billing" })
-		);
-
-		expect(body.error.code).not.toBe("UNAUTHORIZED");
 	});
 
 	// The complement: the limiter is not simply refusing every write. An
