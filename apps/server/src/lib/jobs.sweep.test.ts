@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, lt } from "drizzle-orm";
 import { sweepSettledJobs } from "@/lib/jobs.repository";
 import { skipNotice, testDbReady } from "../../test-db";
 
@@ -68,6 +68,26 @@ async function rowFor(id: string) {
 	return found;
 }
 
+/**
+ * How many rows the sweep is entitled to remove, counted without it.
+ *
+ * The sweep's predicate is global — it takes a cutoff and no kind — so a
+ * leftover settled row from a crashed run is eligible too, and a literal count
+ * could only be made exact by deleting rows this suite did not stage. Counting
+ * the eligible set first is exact without that: a sweep that also took the
+ * `running` or `pending` row below reports more rows than were eligible, and one
+ * that stopped a batch early reports fewer.
+ */
+async function eligibleFor(cutoff: Date): Promise<number> {
+	const rows = await db
+		.select({ id: job.id })
+		.from(job)
+		.where(
+			and(inArray(job.status, ["done", "failed"]), lt(job.updatedAt, cutoff))
+		);
+	return rows.length;
+}
+
 describe.skipIf(!ready)("settled job sweep", () => {
 	it("drops settled rows past the cutoff and leaves every unsettled row", async () => {
 		const cutoff = new Date(Date.now() - CUTOFF_AGE_MS);
@@ -86,12 +106,10 @@ describe.skipIf(!ready)("settled job sweep", () => {
 			new Date(cutoff.getTime() - OLD_MS)
 		);
 
+		const eligible = await eligibleFor(cutoff);
 		const removed = await sweepSettledJobs(cutoff);
 
-		// A lower bound, not an exact count: the sweep is global, and a leftover
-		// settled row from a crashed earlier run may leave with them. The row
-		// assertions below are what actually pin the shape.
-		expect(removed).toBeGreaterThanOrEqual(2);
+		expect(removed).toBe(eligible);
 		expect(await rowFor(oldDone)).toBeUndefined();
 		expect(await rowFor(oldFailed)).toBeUndefined();
 		// Newer than the cutoff: the sweep must not read "settled" as
