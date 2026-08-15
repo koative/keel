@@ -1,8 +1,14 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
-import { eq } from "drizzle-orm";
-import { claim, complete, enqueue, fail } from "@/lib/jobs.repository";
+import { eq, inArray } from "drizzle-orm";
+import {
+	claim,
+	complete,
+	type EnqueueResult,
+	enqueue,
+	fail,
+} from "@/lib/jobs.repository";
 import { skipNotice, testDbReady } from "../../test-db";
 
 const ready = await testDbReady();
@@ -11,11 +17,43 @@ if (!ready) {
 }
 
 const WORKER = "test-worker";
-const BATCH = 10;
 const KIND = "test.echo";
 
+/**
+ * Ids this suite created, so cleanup only ever removes its own rows. The server
+ * and mail suites run concurrently against one database, so a full
+ * `db.delete(job)` would wipe another suite's rows mid-assertion.
+ */
+const staged: string[] = [];
+
+afterEach(async () => {
+	if (staged.length > 0) {
+		await db.delete(job).where(inArray(job.id, staged.splice(0)));
+	}
+});
+
+/**
+ * Enqueues one row, backdated an hour, and records its id for cleanup.
+ *
+ * `claim` is global and orders by `run_at`, so an hour-old row sorts ahead of
+ * every row a concurrent suite creates — which is what lets the claims below
+ * take a batch of one and know which row they got, without touching a peer's.
+ */
+async function stage(dedupeKey?: string): Promise<EnqueueResult> {
+	const result = await enqueue({
+		dedupeKey,
+		kind: KIND,
+		payload: {},
+		runAt: new Date(Date.now() - 3_600_000),
+	});
+	if (result.id !== null) {
+		staged.push(result.id);
+	}
+	return result;
+}
+
 async function enqueueId(dedupeKey?: string): Promise<string> {
-	const { id } = await enqueue({ dedupeKey, kind: KIND, payload: {} });
+	const { id } = await stage(dedupeKey);
 	if (id === null) {
 		throw new Error(`expected ${KIND} to be enqueued, but it collapsed`);
 	}
@@ -41,22 +79,16 @@ async function rowsFor(dedupeKey: string) {
  * job is `done` or `failed`; being claimed is not settling.
  */
 describe.skipIf(!ready)("job dedupe window", () => {
-	// `claim` is global by design — a worker takes whatever is due — so the table
-	// has to start empty or one test claims another's rows.
-	beforeEach(async () => {
-		await db.delete(job);
-	});
-
 	it("collapses two pending enqueues of the same dedupe key", async () => {
 		const dedupeKey = crypto.randomUUID();
 
-		const first = await enqueue({ dedupeKey, kind: KIND, payload: {} });
-		const second = await enqueue({ dedupeKey, kind: KIND, payload: {} });
+		const first = await stage(dedupeKey);
+		const second = await stage(dedupeKey);
 
 		expect(first.created).toBe(true);
 		expect(second.created).toBe(false);
 		expect(second.id).toBeNull();
-		expect(await claim(WORKER, BATCH)).toHaveLength(1);
+		expect(await rowsFor(dedupeKey)).toHaveLength(1);
 	});
 
 	/**
@@ -67,9 +99,9 @@ describe.skipIf(!ready)("job dedupe window", () => {
 	it("collapses an enqueue that arrives while the first job is running", async () => {
 		const dedupeKey = crypto.randomUUID();
 		const id = await enqueueId(dedupeKey);
-		await claim(WORKER, BATCH);
+		await claim(WORKER, 1);
 
-		const second = await enqueue({ dedupeKey, kind: KIND, payload: {} });
+		const second = await stage(dedupeKey);
 
 		expect(second.created).toBe(false);
 		expect(second.id).toBeNull();
@@ -87,10 +119,10 @@ describe.skipIf(!ready)("job dedupe window", () => {
 	it("keeps the key held while a failed attempt waits for its retry", async () => {
 		const dedupeKey = crypto.randomUUID();
 		const id = await enqueueId(dedupeKey);
-		await claim(WORKER, BATCH);
+		await claim(WORKER, 1);
 		await fail(id, WORKER, new Error("boom"));
 
-		const again = await enqueue({ dedupeKey, kind: KIND, payload: {} });
+		const again = await stage(dedupeKey);
 
 		expect((await rowsFor(dedupeKey))[0]?.status).toBe("pending");
 		expect(again.created).toBe(false);
@@ -102,10 +134,10 @@ describe.skipIf(!ready)("job dedupe window", () => {
 	it("frees the dedupe key once the first job is done", async () => {
 		const dedupeKey = crypto.randomUUID();
 		const id = await enqueueId(dedupeKey);
-		await claim(WORKER, BATCH);
+		await claim(WORKER, 1);
 		await complete(id, WORKER);
 
-		const again = await enqueue({ dedupeKey, kind: KIND, payload: {} });
+		const again = await stage(dedupeKey);
 
 		expect(again.created).toBe(true);
 		expect(again.id).not.toBe(id);
@@ -119,6 +151,5 @@ describe.skipIf(!ready)("job dedupe window", () => {
 		const second = await enqueueId();
 
 		expect(second).not.toBe(first);
-		expect(await claim(WORKER, BATCH)).toHaveLength(2);
 	});
 });

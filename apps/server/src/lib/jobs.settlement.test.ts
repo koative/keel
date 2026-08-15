@@ -1,15 +1,7 @@
-import {
-	afterEach,
-	beforeEach,
-	describe,
-	expect,
-	it,
-	mock,
-	spyOn,
-} from "bun:test";
+import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { type JobRegistry, runOnce } from "@/lib/jobs";
 import {
 	claim,
@@ -29,16 +21,38 @@ const WORKER = "test-worker";
 
 /** A second worker id, used wherever a test needs the fence to exclude someone. */
 const THIEF = "other-worker";
-const BATCH = 10;
 
 /** Matches `MAX_ERROR_LENGTH` in `jobs.repository.ts`, the way `jobs.test.ts` mirrors the attempts default. */
 const MAX_ERROR_LENGTH = 1000;
 
+/** Ids this suite created, so cleanup only ever removes its own rows. */
+const staged: string[] = [];
+
+afterEach(async () => {
+	mock.restore();
+	if (staged.length > 0) {
+		await db.delete(job).where(inArray(job.id, staged.splice(0)));
+	}
+});
+
+/**
+ * Enqueues one row, backdated an hour, and records its id for cleanup.
+ *
+ * `claim` is global and orders by `run_at`, so an hour-old row sorts ahead of
+ * every row a concurrent suite creates. That is what lets the claims below take
+ * a batch of one and know which row they got: an unbounded batch would drag a
+ * peer's row into `runJob`, which has no handler for it and would fail it.
+ */
 async function enqueueId(kind = "test.echo"): Promise<string> {
-	const { id } = await enqueue({ kind, payload: {} });
+	const { id } = await enqueue({
+		kind,
+		payload: {},
+		runAt: new Date(Date.now() - 3_600_000),
+	});
 	if (id === null) {
 		throw new Error(`expected ${kind} to be enqueued, but it collapsed`);
 	}
+	staged.push(id);
 	return id;
 }
 
@@ -51,7 +65,7 @@ async function enqueueId(kind = "test.echo"): Promise<string> {
  */
 async function claimed(): Promise<string> {
 	const id = await enqueueId();
-	await claim(WORKER, BATCH);
+	await claim(WORKER, 1);
 	return id;
 }
 
@@ -73,10 +87,6 @@ function captureStderr(): string[] {
 	return written;
 }
 
-afterEach(() => {
-	mock.restore();
-});
-
 /**
  * Settlement: writing down an outcome that already happened.
  *
@@ -86,12 +96,6 @@ afterEach(() => {
  * same answer, because an attempt is what a handler spends, not what a pool does.
  */
 describe.skipIf(!ready)("job settlement", () => {
-	// `claim` is global by design — a worker takes whatever is due — so the table
-	// has to start empty or one test claims another's rows.
-	beforeEach(async () => {
-		await db.delete(job);
-	});
-
 	it("reports whether it was the call that settled the job", async () => {
 		const id = await claimed();
 
@@ -164,13 +168,16 @@ describe.skipIf(!ready)("job settlement", () => {
 		const id = await enqueueId("test.steal");
 		const reported = captureStderr();
 
-		expect(await runOnce(registry, WORKER, BATCH)).toBe(1);
+		expect(await runOnce(registry, WORKER, 1)).toBe(1);
 		expect(runs).toEqual([id]);
 
 		const row = await rowFor(id);
 		// `fail` was not called. An attempt is what a handler spends, and this
 		// handler succeeded; a settlement that could not be written down must not
-		// cost the job one of its five, nor overwrite a diagnosis with a pool error.
+		// cost the job one of its five, nor overwrite a diagnosis with a pool
+		// error. `running` is also what keeps a later poll off the row — `claim`
+		// only takes `pending` rows — so the handler cannot run a second time on
+		// the strength of a settlement that did not happen.
 		expect(row?.attempts).toBe(0);
 		expect(row?.lastError).toBeNull();
 		expect(row?.status).toBe("running");
@@ -179,10 +186,5 @@ describe.skipIf(!ready)("job settlement", () => {
 		// plan 011's reaper exists, and a human needs the job id to find it.
 		expect(reported.join("")).toContain(id);
 		expect(reported.join("")).toContain("no longer owns");
-
-		// Still `running`, so no poll can pick it up — the handler does not run a
-		// second time on the strength of a settlement that did not happen.
-		expect(await runOnce(registry, WORKER, BATCH)).toBe(0);
-		expect(runs).toEqual([id]);
 	});
 });

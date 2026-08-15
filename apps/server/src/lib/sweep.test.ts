@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
 import { and, eq, lt } from "drizzle-orm";
@@ -14,8 +14,12 @@ if (!ready) {
  * `job` is the subject table because it is the one sweep target with no foreign
  * key: a row needs nothing seeded before it. The helper is table-agnostic, so
  * what is under test is the loop, not the queue.
+ *
+ * The kind is unique per run so that a row left behind by a crashed earlier run
+ * cannot be counted by this one — which is why the suite never has to empty a
+ * table the mail suite is asserting on concurrently.
  */
-const KIND = "sweep.test";
+const KIND = `sweep.test.${crypto.randomUUID()}`;
 
 /** Every seeded row sits either well before this or well after it. */
 const CUTOFF = new Date(Date.now() - 60_000);
@@ -58,10 +62,10 @@ function captureStderr(): { restore: () => void; written: string[] } {
 }
 
 describe.skipIf(!ready)("deleteInBatches", () => {
-	// Same reason jobs.test.ts starts empty: the table is shared, and a row left
-	// by another suite would be counted by this one.
-	beforeEach(async () => {
-		await db.delete(job);
+	// Every seeded row carries this suite's own kind, and `eligible` and
+	// `remaining` are scoped to it, so cleanup is too.
+	afterEach(async () => {
+		await db.delete(job).where(eq(job.kind, KIND));
 	});
 
 	// Five rows at a batch size of two is three statements: 2, 2, then 1. The

@@ -12,7 +12,6 @@ if (!ready) {
 }
 
 const WORKER = "test-worker";
-const BATCH = 10;
 
 /**
  * Ids this suite created, so cleanup only ever removes its own rows. The
@@ -28,8 +27,20 @@ afterEach(async () => {
 	}
 });
 
+/**
+ * Enqueues one row, backdated an hour, and records its id for cleanup.
+ *
+ * `claim` is global and orders by `run_at`, so an hour-old row sorts ahead of
+ * every row a concurrent suite creates. Together with a batch bounded to this
+ * suite's own row count that keeps a peer's row out of `runOnce` — this suite's
+ * registries hold no handler for other kinds, so a claimed foreign row would be
+ * failed: an attempt spent and a `last_error` overwritten in another suite.
+ */
 async function enqueueId(input: EnqueueInput): Promise<string> {
-	const { id } = await enqueue(input);
+	const { id } = await enqueue({
+		...input,
+		runAt: new Date(Date.now() - 3_600_000),
+	});
 	if (id === null) {
 		throw new Error(`expected ${input.kind} to be enqueued, but it collapsed`);
 	}
@@ -54,13 +65,13 @@ describe.skipIf(!ready)("job runner", () => {
 	it("fails a job of an unknown kind instead of throwing", async () => {
 		const id = await enqueueId({ kind: "test.unregistered", payload: {} });
 
-		const processed = await runOnce(new Map(), WORKER, BATCH);
+		const processed = await runOnce(new Map(), WORKER, 1);
 		const row = await rowFor(id);
 
-		// A lower bound, not an exact count: `claim` is global, so a concurrent
-		// suite's due rows would be processed here too. The row assertions below
-		// pin the unknown-kind outcome.
-		expect(processed).toBeGreaterThanOrEqual(1);
+		// `runOnce` returned rather than rethrowing the unknown kind, which is
+		// what the worker's unguarded `while` depends on. The count is exact
+		// because a batch of one can only take the backdated row above.
+		expect(processed).toBe(1);
 		expect(row?.attempts).toBe(1);
 		expect(row?.status).toBe("pending");
 		expect(row?.lastError).toContain("test.unregistered");
@@ -80,20 +91,15 @@ describe.skipIf(!ready)("job runner", () => {
 		const boomId = await enqueueId({ kind: "test.boom", payload: {} });
 		const okId = await enqueueId({ kind: "test.ok", payload: { n: 7 } });
 
-		const processed = await runOnce(registry, WORKER, BATCH);
+		const processed = await runOnce(registry, WORKER, 2);
 
-		// A lower bound for the same reason as the unknown-kind test: the batch is
-		// global, and the per-row assertions below pin each outcome.
-		expect(processed).toBeGreaterThanOrEqual(2);
+		// The throw did not escape the batch: `runOnce` returned, and it returned
+		// after running the second job rather than stopping at the first. Both
+		// rows are backdated, so a batch of two is exactly them, oldest first.
+		expect(processed).toBe(2);
 		expect(seen).toEqual([{ n: 7 }]);
 		expect((await rowFor(boomId))?.status).toBe("pending");
 		expect((await rowFor(boomId))?.lastError).toBe("handler exploded");
-		expect((await rowFor(okId))?.status).toBe("done");
-		// The loop survives the throw: the next pass runs rather than rejecting,
-		// and leaves this suite's rows where the first pass put them. No exact
-		// count — a concurrent suite's due rows would be claimed here.
-		await runOnce(registry, WORKER, BATCH);
-		expect((await rowFor(boomId))?.status).toBe("pending");
 		expect((await rowFor(okId))?.status).toBe("done");
 	});
 });
