@@ -149,6 +149,15 @@ describe("presigned URLs", () => {
 			`${CONFIG.accessKeyId}/${amzDate.slice(0, 8)}/auto/s3/aws4_request`
 		);
 		expect(amzDate).toMatch(AMZ_DATE);
+		/**
+		 * The shape alone would accept a signer that stamped local time: the date
+		 * is a signed input, so a wrong instant still verifies against the
+		 * reference below and only AWS would reject the URL. This is the one
+		 * canonical input the comparison cannot check for itself.
+		 */
+		const stampedAt = `${amzDate.slice(0, 4)}-${amzDate.slice(4, 6)}-${amzDate.slice(6, 11)}:${amzDate.slice(11, 13)}:${amzDate.slice(13, 15)}Z`;
+		expect(Math.abs(Date.now() - Date.parse(stampedAt))).toBeLessThan(60_000);
+
 		expect(url.searchParams.get("X-Amz-Expires")).toBe("300");
 		expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("host");
 
