@@ -191,8 +191,32 @@ export function createAuth() {
 			 */
 			sendOnSignUp: true,
 			sendVerificationEmail: async ({ url, user }) => {
+				/**
+				 * Better Auth mints the link against this API, which is right — the
+				 * endpoint that redeems the token lives here. What it cannot know is
+				 * where to send the browser afterwards, so it leaves `callbackURL` at
+				 * the `/` it defaults to when the caller sends none, and
+				 * `/verify-email` redirects to that value verbatim once the address is
+				 * proven. On this origin `/` is a JSON 404, so the one link every new
+				 * account has to open landed nowhere.
+				 *
+				 * Only the landing page is rewritten, against CORS_ORIGIN the way the
+				 * invitation link below is built: the token stays inside the URL Better
+				 * Auth minted rather than being re-derived here. CORS_ORIGIN is a
+				 * trusted origin, which is what `/verify-email`'s own callback check
+				 * requires.
+				 *
+				 * Sign-in rather than the dashboard, because verifying does not create
+				 * a session — anything behind the auth guard would bounce right back.
+				 */
+				const link = new URL(url);
+				link.searchParams.set(
+					"callbackURL",
+					new URL("/login", env.CORS_ORIGIN).toString()
+				);
+
 				await enqueueMail(
-					verificationEmail({ to: user.email, url }),
+					verificationEmail({ to: user.email, url: link.toString() }),
 					`mail:verification:${user.email}`
 				);
 			},
