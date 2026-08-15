@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Scaffolds a server module and registers both of its surfaces.
+ * Scaffolds a server module and mounts its internal surface.
  *
  * The file set is the part an agent gets wrong: which file may import what is
  * enforced by Biome, so a hand-rolled module fails `bun run check` in ways that
@@ -14,6 +14,7 @@ import { mkdir } from "node:fs/promises";
 import { $, Glob } from "bun";
 
 const APP = "apps/server/src/app.ts";
+const INTERNAL_ROUTES = "apps/server/src/internal-routes.ts";
 const MODULES = "apps/server/src/modules";
 
 const [, , name] = process.argv;
@@ -33,6 +34,19 @@ const camel = name.replace(/-([a-z])/g, (_, letter: string) =>
 const pascal = camel[0]?.toUpperCase() + camel.slice(1);
 /** `api-keys` -> `ApiKey`, the singular a resource name reads best as. */
 const singular = pascal.endsWith("s") ? pascal.slice(0, -1) : pascal;
+/**
+ * `api-keys` -> `api key`, for published prose. `singular.toLowerCase()` would
+ * render "apikey" into the frozen /v1 document, which is the one surface that
+ * cannot be corrected later.
+ */
+const words = name.replace(/-/g, " ");
+const spoken = words.endsWith("s") ? words.slice(0, -1) : words;
+/**
+ * `api-keys` -> `api_key`, the table the module's rows land in. A guess, because
+ * the author writes the schema after this runs — which is why it is emitted as a
+ * named constant the generated suites gate on, and named in the next-steps.
+ */
+const table = spoken.replace(/ /g, "_");
 
 const dir = `${MODULES}/${name}`;
 
@@ -211,9 +225,12 @@ export const ${camel}Store = { findById, listByOrganization };
 `,
 
 	[`${dir}/${name}.repository.test.ts`]: `import { describe, expect, it } from "bun:test";
-import { db } from "@keel/db";
-import { sql } from "drizzle-orm";
-import { seedOrganization, skipNotice, testDbReady } from "../../../test-db";
+import {
+	seedOrganization,
+	skipNotice,
+	tableExists,
+	testDbReady,
+} from "../../../test-db";
 import { findById, insert, listByOrganization } from "./${name}.repository";
 
 const ready = await testDbReady();
@@ -230,22 +247,27 @@ interface Row {
 }
 
 /**
- * The module's table does not exist until step 1 of the generator's
- * next-steps, and the scaffold repository throws until step 3 replaces its
- * bodies. The probe asks the database whether the table exists — nothing else —
- * so a wrong column in the seek, an unmigrated table or a dropped connection
- * fails the suite loudly instead of reading as "not implemented yet" and
- * skipping. \`to_regclass\` accepts a name that does not exist and returns null,
- * so this cannot throw.
+ * The table these rows live in, named here rather than derived from the module
+ * name: the generator guessed it before you wrote the schema. Correct it if step
+ * 1 of the next-steps called the table something else, or the suite below waits
+ * for a table that will never arrive.
  */
-// Probe only when the test database answered, so an unreachable DB leaves the
-// suite skipped (testDbReady's job) instead of crashing it.
-let repositoryWorks = false;
-if (ready) {
-	const { rows: probeRows } = await db.execute(
-		sql\`select to_regclass('${singular.toLowerCase()}') is not null as ready\`
+const TABLE = "${table}";
+
+/**
+ * The table does not exist until step 1 of the generator's next-steps, so the
+ * suite waits for it — and says so, because a suite that skips in silence is
+ * indistinguishable from one that passed. It asks about the table and nothing
+ * else: once the table is there the suite runs, and the throwing stubs fail it
+ * until step 3 replaces them. Probed only when the database answered, so an
+ * unreachable one leaves the suite skipped (testDbReady's job) rather than
+ * crashing it.
+ */
+const tablePresent = ready && (await tableExists(TABLE));
+if (ready && !tablePresent) {
+	process.stdout.write(
+		\`\\n[skip] ${name} repository waits for the \${TABLE} table — step 1 of gen-module's next-steps.\\n\`
 	);
-	repositoryWorks = probeRows[0]?.ready === true;
 }
 
 /**
@@ -269,7 +291,7 @@ const newestFirst = (rows: Row[]) =>
  * reason the service can answer 404 without comparing anything — a row from
  * another organization is simply not returned.
  */
-describe.skipIf(!ready || !repositoryWorks)("${name} repository", () => {
+describe.skipIf(!tablePresent)("${name} repository", () => {
 	it("hides a row belonging to another organization", async () => {
 		const [organizationId, otherOrganization] = await Promise.all([
 			seedOrganization(),
@@ -592,8 +614,11 @@ import { ${camel}IdSchema, ${camel}PageSchema } from "./${name}.schema";
 /**
  * \`/api/${name}\` — the surface the bundled frontend talks to.
  *
- * Routes are chained so the app type carries every endpoint, which is what makes
- * the typed client possible.
+ * Routes are chained so the router's type carries every endpoint, and the
+ * generator mounted this router on internal-routes.ts — the one \`AppType\` is
+ * derived from — which is the pair of facts that makes the typed client work. A
+ * route added here after the fact is typed; one mounted on \`app\` instead is
+ * served but invisible to the client.
  *
  * \`requireOrg\` follows \`requireUser\` and never precedes it: it only asserts on
  * what the session already resolved, so a signed-in member with no active
@@ -613,10 +638,8 @@ export const internal${pascal}Routes = new Hono<AppEnv>()
 `,
 
 	[`${dir}/internal/${name}.routes.test.ts`]: `import { beforeAll, describe, expect, it } from "bun:test";
-import { db } from "@keel/db";
-import { sql } from "drizzle-orm";
 import { app } from "@/app";
-import { skipNotice, testDbReady } from "../../../../test-db";
+import { skipNotice, tableExists, testDbReady } from "../../../../test-db";
 import {
 	createClient,
 	type ErrorEnvelope,
@@ -631,18 +654,23 @@ if (!ready) {
 
 const api = createClient();
 
-// The module's table does not exist until step 1 of the generator's
-// next-steps, and the scaffold repository throws until step 3. The probe asks
-// only whether the table exists, so a wrong column in the seek or an unmigrated
-// table fails these tests loudly instead of reading as "not implemented yet".
-// Probe only when the test database answered, so an unreachable DB leaves the
-// suite skipped (testDbReady's job) instead of crashing it.
-let repositoryWorks = false;
-if (ready) {
-	const { rows: probeRows } = await db.execute(
-		sql\`select to_regclass('${singular.toLowerCase()}') is not null as ready\`
+/**
+ * The table these rows live in — the same constant the repository suite carries,
+ * and for the same reason: the generator guessed it before you wrote the schema.
+ * Correct it if step 1 of the next-steps named the table something else.
+ */
+const TABLE = "${table}";
+
+// The 404 case needs the table, which arrives at step 1 of the generator's
+// next-steps. It waits for it and says so, because a case that skips in silence
+// reads exactly like one that passed. Probed only when the database answered, so
+// an unreachable one leaves the suite skipped (testDbReady's job) rather than
+// crashing it.
+const tablePresent = ready && (await tableExists(TABLE));
+if (ready && !tablePresent) {
+	process.stdout.write(
+		\`\\n[skip] ${name} 404 case waits for the \${TABLE} table — step 1 of gen-module's next-steps.\\n\`
 	);
-	repositoryWorks = probeRows[0]?.ready === true;
 }
 
 /**
@@ -711,7 +739,7 @@ describe.skipIf(!ready)("internal ${name} routes", () => {
 	// does not exist; the cross-tenant distinction is proven in
 	// ${name}.repository.test.ts, where a row from another organization can be
 	// staged and asserted to read as absent.
-	it.skipIf(!repositoryWorks)(
+	it.skipIf(!tablePresent)(
 		"reports an unknown id as a 404, never a 403",
 		async () => {
 			const response = await api.request(
@@ -906,20 +934,20 @@ export const list${pascal}Route = createRoute({
 
 export const get${singular}Route = createRoute({
 	description:
-		"A ${singular.toLowerCase()} belonging to another organization is reported as missing, not as forbidden.",
+		"A ${spoken} belonging to another organization is reported as missing, not as forbidden.",
 	method: "get",
 	path: "/{id}",
 	request: { params: ${camel}IdV1Schema },
 	responses: {
-		[status.OK]: jsonContent(${camel}V1Envelope, "The ${singular.toLowerCase()}"),
+		[status.OK]: jsonContent(${camel}V1Envelope, "The ${spoken}"),
 		[status.UNAUTHORIZED]: unauthorized,
 		[status.FORBIDDEN]: forbidden,
-		[status.NOT_FOUND]: problemContent(errorSchema, "No such ${singular.toLowerCase()} in this organization"),
+		[status.NOT_FOUND]: problemContent(errorSchema, "No such ${spoken} in this organization"),
 		[status.UNPROCESSABLE_ENTITY]: problemContent(errorSchema, "The id is not a UUID"),
 		[status.TOO_MANY_REQUESTS]: rateLimited,
 	},
 	security: SECURITY,
-	summary: "Fetch one ${singular.toLowerCase()}",
+	summary: "Fetch one ${spoken}",
 	tags: TAGS,
 });
 
@@ -961,33 +989,34 @@ await Promise.all(
 	})
 );
 
-// Registering the surfaces is the step that is easy to forget and silent when
+// Registering the surface is the step that is easy to forget and silent when
 // missed: the module compiles, the tests pass, and no request ever reaches it.
-const appSource = await Bun.file(APP).text();
-// Anchored on statements the formatter cannot reshape, not on formatted text: the
-// import list gets wrapped once it grows past the line width, and an anchor that
-// depends on that wrapping fails the second time this script runs.
 //
-// The /v1 mount is the last line of the app chain (deliberate — the public half
-// is the frozen contract, mounted at the end so new internal surfaces slot in
-// before it). Anchoring on `const routes = app` broke when the declaration-bundle
-// split (plan 029) turned the chain head into a bare `app`.
-const CHAIN_ANCHOR = '.route("/v1/projects", publicProjectRoutesV1);';
+// internal-routes.ts and not app.ts: `AppType` derives from `internalRoutes`
+// alone, so a route mounted on `app` is served but absent from the declaration
+// bundle, and the SPA cannot call it through the typed client at all.
+const routesSource = await Bun.file(INTERNAL_ROUTES).text();
+
+// Anchored on the declaration head rather than on the last `.route(...)` line:
+// the chain grows by one line every time this script runs, and an anchor that
+// names the current last mount fails on the next run.
+const CHAIN_ANCHOR = "new Hono<AppEnv>()";
 
 // The head of the existing import block. `organizeImports` sorts a contiguous
 // run of imports but never moves one across an intervening statement, so an
 // import written anywhere below the block would stay stranded mid-file.
-const importStart = appSource.search(/^import /m);
+const importStart = routesSource.search(/^import /m);
 
-const chainStart = appSource.indexOf(CHAIN_ANCHOR);
-const chainEnd = chainStart === -1 ? -1 : appSource.indexOf(";", chainStart);
+const chainStart = routesSource.indexOf(CHAIN_ANCHOR);
+// The semicolon that ends the chain, so the new mount lands last in it.
+const chainEnd = chainStart === -1 ? -1 : routesSource.indexOf(";", chainStart);
 
 if (importStart === -1 || chainEnd === -1) {
 	console.error(
 		`Wrote ${Object.keys(files).length} files, but could not register the routes.`
 	);
 	console.error(
-		`${APP} no longer matches the expected shape. Add these by hand:`
+		`${INTERNAL_ROUTES} no longer matches the expected shape. Add these by hand:`
 	);
 	console.error(
 		`  import { internal${pascal}Routes } from "@/modules/${name}";`
@@ -1000,26 +1029,30 @@ if (importStart === -1 || chainEnd === -1) {
 // pattern is in front of the author, but publishing a /v1 endpoint is a promise
 // with no expiry date, so it should take a deliberate edit rather than fall out of
 // running a generator.
-const mounted = `${appSource.slice(0, chainEnd)}\n\t.route("/api/${name}", internal${pascal}Routes)${appSource.slice(chainEnd)}`;
+const mounted = `${routesSource.slice(0, chainEnd)}\n\t.route("/api/${name}", internal${pascal}Routes)${routesSource.slice(chainEnd)}`;
 
 await Bun.write(
-	APP,
+	INTERNAL_ROUTES,
 	`${mounted.slice(0, importStart)}import { internal${pascal}Routes } from "@/modules/${name}";\n${mounted.slice(importStart)}`
 );
 
 // Formatting here rather than leaving it to the author: an unformatted scaffold
 // fails `bun run check` on its first run, which teaches the wrong lesson about
 // what the check is for.
-await $`bunx biome check --write ${APP} ${dir}`.nothrow().quiet();
+await $`bunx biome check --write ${INTERNAL_ROUTES} ${dir}`.nothrow().quiet();
 
 const written = new Glob(`${dir}/**/*.ts`);
 const count = (await Array.fromAsync(written.scan("."))).length;
 
-console.log(`Created ${count} files in ${dir} and mounted /api/${name}.
+console.log(`Created ${count} files in ${dir} and mounted /api/${name} on
+${INTERNAL_ROUTES}, which is the router the typed client derives from.
 
 Next, in this order:
-  1. packages/db/src/schema/${name}.ts, exported from schema/index.ts. It is
-     org-scoped like every tenant table: organizationId text notNull references
+  1. packages/db/src/schema/${name}.ts, exported from schema/index.ts, as
+     pgTable("${table}", ...). Both generated suites gate on that exact name and
+     announce that they are waiting until it exists, so a different one means
+     editing TABLE in each of them. The table is org-scoped like every tenant
+     table: organizationId text notNull references
      organization.id onDelete cascade, createdBy text nullable references user.id
      onDelete "set null", and any unique index keyed on (organizationId, ...).
      Timestamps are timestamp(name, { precision: 3, withTimezone: true }) for both
@@ -1040,11 +1073,13 @@ The generated tests cover the wiring from the first commit:
     scaffold can already serve, and the 404 on an unknown id
   - ${name}.repository.test.ts carries the tenancy filter and keyset paging cases
 
-The repository-dependent ones (the 404, and the whole repository suite) probe
-for a working repository and self-enable the moment step 3 is done — no edits
-needed, and nothing to forget. The cross-tenant 404 case needs rows in the
-module's table; it is noted in the routes test and pinned by the repository
-suite instead.
+The table-dependent ones (the 404, and the whole repository suite) wait for the
+${table} table and enable themselves the moment step 1 creates it — announcing
+the wait on stdout until then, so a suite that has not run yet never reads as one
+that passed. Between step 1 and step 3 they run and FAIL with "${name}: not
+implemented", which is the throwing repository telling you the truth. The
+cross-tenant 404 case needs rows in the table; it is noted in the routes test and
+pinned by the repository suite instead.
 
 The generated repository throws on purpose: a half-finished module must not look
 like a working one.

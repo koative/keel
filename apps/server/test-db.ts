@@ -4,19 +4,32 @@ import { member, organization } from "@keel/db/schema/organization";
 import { eq, sql } from "drizzle-orm";
 
 /**
+ * Whether a table is present, which is what a suite for a table that does not
+ * exist yet gates on. `to_regclass` accepts a name that was never created and
+ * returns null, so this asks without throwing. The name is qualified because an
+ * unqualified one is resolved through the session's `search_path`.
+ */
+export async function tableExists(name: string): Promise<boolean> {
+	const result = await db.execute(
+		sql`select to_regclass(${`public.${name}`}) is not null as present`
+	);
+	return result.rows[0]?.present === true;
+}
+
+/**
  * Integration tests need a real Postgres, and a developer without Docker running
  * should still get a green `bun test` for everything else. Tests that need the
  * database gate on this and announce the skip loudly rather than silently
  * reporting success.
  *
+ * `project` is the probe table: it has existed since the first migration, so its
+ * presence answers "is this database migrated at all?".
+ *
  * Start it with `bun run db:test:start && bun run db:test:migrate`.
  */
 export async function testDbReady(): Promise<boolean> {
 	try {
-		const result = await db.execute(
-			sql`select to_regclass('public.project') is not null as ready`
-		);
-		return result.rows[0]?.ready === true;
+		return await tableExists("project");
 	} catch {
 		return false;
 	}
