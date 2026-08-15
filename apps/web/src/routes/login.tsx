@@ -16,7 +16,13 @@ export const Route = createFileRoute("/login")({
 		// would carry the just-signed-in user to another origin on a trusted page.
 		// Only a root-relative path is accepted; anything else — including the
 		// protocol-relative `//evil.example`, which reads as root-relative and is
-		// not — falls back to the default.
+		// not — is dropped by the `catch` below.
+		//
+		// Dropped, not rejected: a thrown validation error becomes the match's
+		// error and renders the error component, which would leave a user who
+		// followed a tampered link with no way to sign in at all. `catch` turns
+		// the rejected target into `undefined`, so the fallback at the bottom of
+		// this file sends them to the default destination instead.
 		redirect: z
 			.string()
 			.optional()
@@ -24,7 +30,8 @@ export const Route = createFileRoute("/login")({
 				(value) =>
 					value === undefined ||
 					(value.startsWith("/") && !value.startsWith("//"))
-			),
+			)
+			.catch(undefined),
 	}),
 });
 
