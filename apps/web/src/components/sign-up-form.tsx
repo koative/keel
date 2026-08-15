@@ -3,6 +3,7 @@ import { Input } from "@keel/ui/components/input";
 import { Label } from "@keel/ui/components/label";
 import { useForm } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
@@ -20,6 +21,14 @@ export default function SignUpForm({
 	const navigate = useNavigate({
 		from: "/",
 	});
+	/**
+	 * The address a verification mail has just been sent to, and the signal that
+	 * this form is done: sign-up is terminal here, not a step on the way to a
+	 * session.
+	 */
+	const [pendingVerification, setPendingVerification] = useState<string | null>(
+		null
+	);
 	const { isPending } = authClient.useSession();
 
 	const form = useForm({
@@ -39,7 +48,24 @@ export default function SignUpForm({
 					onError: (error) => {
 						toast.error(error.error.message || error.error.statusText);
 					},
-					onSuccess: () => {
+					// Annotated because better-auth's client types this callback's `data`
+					// as `any`, and the branch below is the whole fix — an unchecked
+					// property access would let a rename break it silently.
+					onSuccess: ({ data }: { data: { token: string | null } }) => {
+						/**
+						 * A null token means the server refuses to sign anyone in until
+						 * the address is proven, and it set no cookie. Navigating anyway
+						 * would send a sessionless user at the authenticated area, whose
+						 * guard bounces them back to /login and re-renders this form —
+						 * and a second sign-up of the same address answers with a
+						 * synthetic success, so the loop would never resolve into an
+						 * error either. The mail is the only way on from here.
+						 */
+						if (data.token === null) {
+							setPendingVerification(value.email);
+							return;
+						}
+
 						// `href`, not `to`: the destination came from a guard as a full path
 						// and is not a known route literal.
 						navigate({ href: redirectTo });
@@ -59,6 +85,31 @@ export default function SignUpForm({
 
 	if (isPending) {
 		return <Loader />;
+	}
+
+	if (pendingVerification) {
+		return (
+			<div className="mx-auto mt-10 w-full max-w-md p-6">
+				<h1 className="mb-6 text-center font-bold text-3xl">
+					Check your inbox
+				</h1>
+
+				<p className="text-center">
+					We sent a confirmation link to {pendingVerification}. Open it to
+					finish signing up — until then, there is nothing to sign in to.
+				</p>
+
+				<div className="mt-4 text-center">
+					<Button
+						className="text-indigo-600 hover:text-indigo-800"
+						onClick={onSwitchToSignIn}
+						variant="link"
+					>
+						Already confirmed? Sign In
+					</Button>
+				</div>
+			</div>
+		);
 	}
 
 	return (
