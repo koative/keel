@@ -49,42 +49,39 @@ ALTER TABLE "project" RENAME COLUMN "owner_id" TO "created_by";--> statement-bre
 --> constraints, but `created_by` is nullable on purpose: its foreign key is ON
 --> DELETE SET NULL, and Postgres cannot set null on a NOT NULL column, so
 --> deleting a user failed with a constraint violation instead of clearing the
---> creator. drizzle-kit does not diff nullability across a rename and its own
---> diff reports the schema as matching, which is why tools/check-migrations.ts
---> cannot catch this class of drift either.
+--> creator. drizzle-kit does not diff nullability across a rename, so its own
+--> diff reports the schema as matching; tools/check-migrations.ts replays this
+--> statement and fails naming `"project"."created_by"` if it is ever removed.
 ALTER TABLE "project" ALTER COLUMN "created_by" DROP NOT NULL;--> statement-breakpoint
 ALTER TABLE "project" DROP CONSTRAINT "project_owner_id_user_id_fk";
 --> statement-breakpoint
 DROP INDEX "project_owner_slug_idx";--> statement-breakpoint
 DROP INDEX "project_ownerId_idx";--> statement-breakpoint
 ALTER TABLE "session" ADD COLUMN "active_organization_id" text;--> statement-breakpoint
---> statement-breakpoint
 --> Hand-added. `organization_id` is NOT NULL on purpose, but the original
 --> `ADD COLUMN ... NOT NULL` here aborted on any 0000-era database: 0000's
 --> `project` table already holds rows, and Postgres refuses to add a NOT NULL
 --> column to a non-empty table, halting the whole upgrade with no recovery.
 --> Committed migrations are frozen history, yet the only mechanical fix for
 --> such a database is making 0001 itself apply, and a fresh install ends with
---> the identical final schema. The drift gate cannot tell the difference,
---> exactly like the `DROP NOT NULL` above, and this file already carries that
---> hand edit. So the column is added nullable, backfilled, then tightened:
+--> the identical final schema. Both forms leave `organization_id` NOT NULL, so
+--> the drift gate reads them the same way, and this file already carries the
+--> hand edit above. So the column is added nullable, backfilled, then tightened:
 --> one organization per distinct creator (a 0000-era project's `created_by`
 --> is its old NOT NULL `owner_id`, so every row has one), with an owner
 --> member row. Ids and slugs derive from the user id, so the backfill is
---> deterministic and idempotent.
+--> deterministic.
 ALTER TABLE "project" ADD COLUMN "organization_id" text;
 --> statement-breakpoint
 INSERT INTO "organization" ("id", "slug", "name")
 SELECT 'org_' || "user"."id", "user"."id", 'Default'
 FROM "user"
-WHERE "user"."id" IN (SELECT "created_by" FROM "project")
-ON CONFLICT ("id") DO NOTHING;
+WHERE "user"."id" IN (SELECT "created_by" FROM "project");
 --> statement-breakpoint
 INSERT INTO "member" ("id", "organization_id", "user_id", "role")
 SELECT 'member_' || "user"."id", 'org_' || "user"."id", "user"."id", 'owner'
 FROM "user"
-WHERE "user"."id" IN (SELECT "created_by" FROM "project")
-ON CONFLICT ("id") DO NOTHING;
+WHERE "user"."id" IN (SELECT "created_by" FROM "project");
 --> statement-breakpoint
 UPDATE "project" SET "organization_id" = 'org_' || "project"."created_by" WHERE "organization_id" IS NULL;
 --> statement-breakpoint
