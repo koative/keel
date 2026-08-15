@@ -8,6 +8,12 @@ const PREFLIGHT_HEADERS = {
 	Origin: "http://localhost:3001",
 };
 
+// A body stream that rejects is what a client vanishing mid-upload looks like from
+// inside the server. It surfaces while `requestBodyLimit` is counting the body,
+// above every route, so nothing but `app.onError` can answer it. The thrown text
+// reads like the connection string an unexpected failure really would carry.
+const THROWN_DETAIL = "postgres://keel:hunter2@db:5432/keel is unreachable";
+
 describe("app", () => {
 	it("answers the container health probe", async () => {
 		const response = await app.request("/");
@@ -74,6 +80,39 @@ describe("terminal responses", () => {
 			status: 404,
 			title: "Not found",
 			type: "https://keel.dev/errors/not-found",
+		});
+	});
+
+	it("renders an unexpected failure without echoing what was thrown", async () => {
+		const response = await app.request("/v1/projects", {
+			body: new ReadableStream({
+				start: (controller) => controller.error(new Error(THROWN_DETAIL)),
+			}),
+			duplex: "half",
+			headers: {
+				"content-type": "application/json",
+				"x-request-id": "trace-9",
+			},
+			method: "POST",
+		});
+
+		expect(response.status).toBe(500);
+		expect(response.headers.get("content-type")).toContain(
+			"application/problem+json"
+		);
+		// Whole-document equality is the leak assertion: there is nowhere for the
+		// thrown message to hide, and the client still gets an id to quote.
+		expect(await response.json()).toEqual({
+			error: {
+				code: "INTERNAL_SERVER_ERROR",
+				fix: "Retry the request, and quote the requestId if it keeps failing",
+				message: "Something went wrong",
+				requestId: "trace-9",
+				why: "The server failed while handling this request",
+			},
+			status: 500,
+			title: "Internal server error",
+			type: "https://keel.dev/errors/internal-server-error",
 		});
 	});
 
