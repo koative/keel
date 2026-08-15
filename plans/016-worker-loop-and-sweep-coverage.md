@@ -77,7 +77,7 @@
   - a `done` row newer than the cutoff → kept;
   - a `running` row older than the cutoff → **kept** (the sweep must not touch unsettled rows — this is the behavior plan 011's reaper depends on);
   - the returned count equals the number removed.
-  (New sibling suite `jobs.sweep.test.ts` — `jobs.test.ts` is near the 200-code-line cap. Rows inserted directly in the reaper's strand style with explicit `status` + `updated_at`; the cutoff is captured first and every row's `updated_at` derives from it (old = cutoff − 10min, kept = cutoff + 1min), so verdicts cannot drift with test duration. The cutoff itself sits an hour back from now, the reaper's isolation trick: no concurrent suite settles a row that old, so this global sweep can never delete a row another suite is mid-assertion on. Count asserted as a lower bound `≥ 2` (leftover rows from crashed earlier runs may also be swept); the five per-row presence/absence assertions pin the behavior.)
+  (New sibling suite `jobs.sweep.test.ts` — `jobs.test.ts` is near the 200-code-line cap. Rows inserted directly in the reaper's strand style with explicit `status` + `updated_at`; the cutoff is captured first and every row's `updated_at` derives from it (old = cutoff − 10min, kept = cutoff + 1min), so verdicts cannot drift with test duration. The cutoff itself sits an hour back from now, the reaper's isolation trick: no concurrent suite settles a row that old, so this global sweep can never delete a row another suite is mid-assertion on. The count first shipped as a lower bound `≥ 2`, which a regression returning 4 satisfied; `a97722f` made it exact and directional without pinning a literal, which a global sweep cannot honestly do: `eligibleFor(cutoff)` at `jobs.sweep.test.ts:81` counts the settled-and-past-cutoff set independently, and `:112` requires `removed` to equal it. An over-deletion of the `running`/`pending` rows reports more than were eligible and fails; a short batch reports fewer and fails.)
 - [x] **Step 2:** Clean up after the test by id (per plan 017's staged-ids pattern), never a full wipe.
 - [x] **Step 3:** Run with explicit paths and commit: `test(jobs): the settled-job sweep keeps unsettled rows`. (All four 016 suites + the four existing job suites run together: 39 pass, 0 fail.)
 
@@ -85,7 +85,7 @@
 
 - The full-batch poll decision is a pure tested function used by `worker.ts`.
 - The retry ladder's backoff values (base, doubling, cap) are asserted.
-- `sweepSettledJobs` is tested: settled-older removed, newer kept, `running`/`pending` untouched, count correct.
+- `sweepSettledJobs` is tested: settled-older removed, newer kept, `running`/`pending` untouched, and the reported count is exactly the independently-counted eligible set (`jobs.sweep.test.ts:112`, `expect(removed).toBe(eligible)`), not a lower bound.
 - No full-table wipes introduced; no `bun run check` run mid-flight.
 
 ## Out of scope
