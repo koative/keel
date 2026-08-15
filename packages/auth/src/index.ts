@@ -235,18 +235,17 @@ export function createAuth() {
 				/**
 				 * Seven days, against the plugin's 48-hour default.
 				 *
-				 * 48 hours assumes the invitation lands in an inbox seconds after it is
-				 * sent. It now can — but `MAIL_DRIVER=log` writes the message to the
-				 * worker's stdout instead of sending it, so on a deployment that chose it
-				 * an invitation still travels by hand: somebody copies the link off the
-				 * members screen into a chat, and it waits for a human to read that chat.
-				 * Two days is hostile to that, and an expired invitation is
-				 * indistinguishable from a broken one.
+				 * 48 hours is a machine's timescale, and delivery is the only part of an
+				 * invitation that runs on one. The rest waits on a person: the link
+				 * lands in an inbox on a Friday evening and is read on Monday, and an
+				 * expired invitation is indistinguishable from a broken one to the only
+				 * people who could tell them apart — the invited person has no account
+				 * to sign into and ask from.
 				 *
-				 * A deployment that configures a real driver can bring this back toward
-				 * the plugin's 48 hours, and should: a longer window is a longer period
-				 * in which a leaked link is still redeemable, and that cost is only
-				 * worth paying while delivery is manual.
+				 * What it costs is a longer period in which a leaked link is still
+				 * redeemable, and `cancelPendingInvitationsOnReInvite` above is what
+				 * makes that recoverable: re-inviting the address mints a new link and
+				 * kills every earlier one.
 				 */
 				invitationExpiresIn: 7 * 24 * 60 * 60,
 				/**
