@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import type { AppEnv } from "@/lib/context";
+import { internalAiRoutes } from "@/modules/ai";
 import { internalProjectRoutes } from "@/modules/projects";
+import { internalStorageRoutes } from "@/modules/storage";
 
 /**
  * The router behind the typed client, and nothing else.
@@ -13,10 +15,15 @@ import { internalProjectRoutes } from "@/modules/projects";
  *
  * It lives in its own module on purpose: the type bundle is built from
  * app-type.ts, so everything reachable from here ends up in the client's
- * types. A route that should be typed in the client belongs here; `app` keeps
- * the rest — the `/v1` contract, the probes, Better Auth.
+ * types. A route a browser calls belongs here; `app` keeps the rest — the
+ * `/v1` contract, the probes, Better Auth.
+ *
+ * `/api/webhooks` is the one internal router deliberately mounted on `app`
+ * instead: a provider posts to it server-to-server with a signature and no
+ * cookie, so no browser client ever calls it and typing it would only widen
+ * the surface the SPA can reach.
  */
-export const internalRoutes = new Hono<AppEnv>().route(
-	"/api/projects",
-	internalProjectRoutes
-);
+export const internalRoutes = new Hono<AppEnv>()
+	.route("/api/projects", internalProjectRoutes)
+	.route("/api/storage", internalStorageRoutes)
+	.route("/api/ai", internalAiRoutes);

@@ -24,9 +24,7 @@ import {
 	requestBodyLimit,
 } from "@/lib/security";
 import { rejectInvalid } from "@/lib/validate";
-import { internalAiRoutes } from "@/modules/ai";
 import { publicProjectRoutesV1 } from "@/modules/projects";
-import { internalStorageRoutes } from "@/modules/storage";
 import { internalWebhookRoutes } from "@/modules/webhooks";
 
 const identifyUser = createAuthMiddleware(auth as BetterAuthInstance, {
@@ -161,12 +159,11 @@ app.doc("/doc", {
 
 // The `/v1` half stays mounted here — only its presence in the client's type
 // bundle changes. Mounting both halves keeps the runtime surface intact while
-// `AppType` sees the internal router alone.
+// `AppType` sees the internal router alone. `/api/webhooks` sits here too, and
+// internal-routes.ts says why: a provider callback is not an SPA endpoint.
 app
 	.get("/", (c) => c.text("OK"))
 	.route("/", internalRoutes)
-	.route("/api/storage", internalStorageRoutes)
-	.route("/api/ai", internalAiRoutes)
 	.route("/api/webhooks", internalWebhookRoutes)
 	.route("/v1/projects", publicProjectRoutesV1);
 
