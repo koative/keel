@@ -176,15 +176,16 @@ export interface SignatureInput {
  *    string.
  * 2. **`enqueue`'s `dedupeKey` set to that same event id**, namespaced —
  *    `webhook:<provider>:<eventId>` — so a burst of provider retries collapses
- *    into the one job that has not started yet.
+ *    into the one job that has not settled yet.
  *
  * The second is not a substitute for the first, and the reason is in the index
- * rather than in the code: `job_dedupeKey_pending_idx` is unique only
- * `WHERE status = 'pending'` (`packages/db/src/schema/job.ts`). The moment a job
- * settles the key leaves the index and is usable again, which is exactly the
- * behaviour that makes it a debounce and a mutex — and exactly why it cannot
- * remember an event from ten minutes ago. A receiver that treats `dedupeKey` as
- * its replay guard is relying on a row it has already deleted.
+ * rather than in the code: `job_dedupeKey_unsettled_idx` is unique only
+ * `WHERE status IN ('pending', 'running')` (`packages/db/src/schema/job.ts`). The
+ * moment a job settles the key leaves the index and is usable again, which is
+ * exactly the behaviour that makes it a debounce and a mutex — and exactly why
+ * it cannot remember an event from ten minutes ago. A receiver that treats
+ * `dedupeKey` as its replay guard is relying on a guard the queue handed back
+ * when the job settled.
  *
  * The event id comes out of the payload, which means it is read after the
  * signature verified and never before. An id parsed from an unverified body is
