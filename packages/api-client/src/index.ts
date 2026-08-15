@@ -29,9 +29,11 @@ export function createApiClient(
 ) {
 	return hc<AppType>(baseUrl, {
 		// The session lives in a cookie that Better Auth sets, so every call has to
-		// carry it cross-origin. The spread order puts the caller's init under
-		// credentials, so it can never drop the cookie.
+		// carry it cross-origin. `credentials` comes last on purpose: spread over
+		// the caller's init rather than under it, so a caller that passes its own
+		// `init` — for a signal, a mode, a header — cannot drop the cookie and get
+		// a 401 it has no way to explain.
 		...options,
-		init: { credentials: "include", ...options?.init },
+		init: { ...options?.init, credentials: "include" },
 	});
 }
