@@ -17,8 +17,9 @@ import { CREDENTIALS } from "../../../lib/storage.fixtures";
 /**
  * The handlers resolve storage through `@/lib/storage`. This suite pins the
  * resolver's SOURCE, never its wiring: the mock below delegates to the real
- * `resolveStorage`, and each request that reaches the handler picks which
- * environment the real guard sees.
+ * `resolveStorage`, and the request that first reaches the handler picks which
+ * environment the real guard sees. Only that one does — the handler keeps what
+ * it resolved — so the cases below are ordered around it.
  *
  * The real function is pinned before `mock.module` is registered: registering
  * first would make even a pre-captured namespace hand back the mock, because
@@ -110,9 +111,52 @@ describe.skipIf(!ready)("internal storage routes", () => {
 		);
 	});
 
+	/**
+	 * Before the configured cases, and it has to be: the handler keeps the client
+	 * it resolves, so once a request has resolved one no later request reaches the
+	 * resolver at all. A refusal is not kept, which is what leaves this case free
+	 * to run first.
+	 */
+	describe("unconfigured deployment", () => {
+		afterEach(() => {
+			initLogger({ drain: () => Promise.resolve(), silent: true });
+		});
+
+		it("logs the unset STORAGE_* keys and names none of them to the caller", async () => {
+			// No implementationOnce: the mock's default delegates to the real
+			// resolveStorage, whose guard refuses an empty environment.
+			const events: DrainContext[] = [];
+			initLogger({
+				drain: (context) => {
+					events.push(context);
+				},
+				silent: true,
+			});
+
+			const response = await api.request(
+				"/api/storage/upload-url?key=avatars/me.png&expiresInSeconds=60"
+			);
+			const body = await api.body<ErrorEnvelope>(response);
+
+			expect(response.status).toBe(503);
+			expect(body.error.code).toBe("SERVICE_UNAVAILABLE");
+			// Not one deployment key: this envelope is readable by any signed-in
+			// member of any organization.
+			expect(JSON.stringify(body.error)).not.toContain("STORAGE_");
+
+			// The operator's copy, on the request's own wide event.
+			const logged = JSON.stringify(events.at(-1)?.event.error ?? {});
+			expect(logged).toContain("STORAGE_PROVIDER");
+			expect(logged).toContain("STORAGE_BUCKET");
+			expect(logged).toContain("STORAGE_ACCESS_KEY_ID");
+			expect(logged).toContain("STORAGE_SECRET_ACCESS_KEY");
+		});
+	});
+
 	it("returns a presigned upload URL scoped to the caller's tenant", async () => {
 		// The handler calls the resolver with no source; the real guard runs
-		// against the configured environment this once.
+		// against the configured environment this once, and the client it builds
+		// is the one every later request in this suite gets.
 		resolveStorageMock.mockImplementationOnce(() =>
 			realResolveStorage(CONFIGURED)
 		);
@@ -131,9 +175,10 @@ describe.skipIf(!ready)("internal storage routes", () => {
 	});
 
 	it("returns a presigned download URL carrying the requested lifetime", async () => {
-		resolveStorageMock.mockImplementationOnce(() =>
-			realResolveStorage(CONFIGURED)
-		);
+		// No `mockImplementationOnce` of its own, and that is the assertion: the
+		// mock's default resolves an empty environment and would refuse. A 200
+		// here is the handler reusing what the upload request resolved — a
+		// resolver called per request would answer 503.
 
 		const response = await api.request(
 			"/api/storage/download-url?key=avatars/me.png&expiresInSeconds=300"
@@ -169,41 +214,5 @@ describe.skipIf(!ready)("internal storage routes", () => {
 		expect((await api.body<ErrorEnvelope>(response)).error.code).toBe(
 			"UNPROCESSABLE_ENTITY"
 		);
-	});
-
-	describe("unconfigured deployment", () => {
-		afterEach(() => {
-			initLogger({ drain: () => Promise.resolve(), silent: true });
-		});
-
-		it("logs the unset STORAGE_* keys and names none of them to the caller", async () => {
-			// No implementationOnce: the mock's default delegates to the real
-			// resolveStorage, whose guard refuses an empty environment.
-			const events: DrainContext[] = [];
-			initLogger({
-				drain: (context) => {
-					events.push(context);
-				},
-				silent: true,
-			});
-
-			const response = await api.request(
-				"/api/storage/upload-url?key=avatars/me.png&expiresInSeconds=60"
-			);
-			const body = await api.body<ErrorEnvelope>(response);
-
-			expect(response.status).toBe(503);
-			expect(body.error.code).toBe("SERVICE_UNAVAILABLE");
-			// Not one deployment key: this envelope is readable by any signed-in
-			// member of any organization.
-			expect(JSON.stringify(body.error)).not.toContain("STORAGE_");
-
-			// The operator's copy, on the request's own wide event.
-			const logged = JSON.stringify(events.at(-1)?.event.error ?? {});
-			expect(logged).toContain("STORAGE_PROVIDER");
-			expect(logged).toContain("STORAGE_BUCKET");
-			expect(logged).toContain("STORAGE_ACCESS_KEY_ID");
-			expect(logged).toContain("STORAGE_SECRET_ACCESS_KEY");
-		});
 	});
 });

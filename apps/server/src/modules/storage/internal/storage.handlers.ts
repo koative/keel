@@ -19,6 +19,22 @@ type DownloadContext = Context<
 >;
 
 /**
+ * The bucket this deployment named, resolved on first use and kept.
+ *
+ * `resolveStorage` re-runs the whole provider and environment guard chain and
+ * builds a new `S3Client` for a value that cannot change while the process
+ * lives, so calling it per request allocated a client to sign one URL and threw
+ * it away — the mail resolver is hoisted to startup for exactly this reason.
+ * Lazily rather than at import, because a deployment that configured no bucket
+ * must still boot and answer 503 here instead of failing to start.
+ *
+ * Only a resolution is remembered, never a refusal: an unconfigured deployment
+ * pays the guard again per request, which is the one case where paying buys
+ * something — the operator gets the log line every time somebody tries.
+ */
+let resolved: Storage | undefined;
+
+/**
  * `resolveStorage` refuses a call rather than returning something half-wired: on
  * a deployment with no bucket it throws naming the `STORAGE_*` keys that are
  * unset. That report belongs in the request's wide event, where the operator who
@@ -29,14 +45,20 @@ type DownloadContext = Context<
  * never named, so retry rather than escalate.
  */
 function storageOf(c: Context<AppEnv>): Storage {
+	if (resolved) {
+		return resolved;
+	}
+
 	try {
-		return resolveStorage();
+		resolved = resolveStorage();
 	} catch (error) {
 		c.get("log").error(error as Error);
 		throw serviceUnavailable(
 			"Object storage is not configured for this deployment"
 		);
 	}
+
+	return resolved;
 }
 
 /**
