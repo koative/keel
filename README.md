@@ -46,9 +46,11 @@ app stops compiling, through a prebuilt declaration bundle so the client package
 never re-infers the route tree.
 
 **The enforcement is itself tested.** A rule that quietly stops matching looks
-exactly like clean code. `tools/check-rules.ts` violates every architecture rule on purpose
-and fails if any stops firing. It caught two real regressions while this was being
-written.
+exactly like clean code. `tools/check-rules.ts` writes a file that breaks each layer
+rule on purpose — at a real repository path, because the rules are scoped by path
+glob and a copy in a temp directory would only test the copy — runs Biome over them,
+and fails if any rule stops firing. It caught two real regressions while this was
+being written.
 
 ## Getting started
 
@@ -261,9 +263,13 @@ signature over the **raw bytes** — a body that was parsed and re-stringified
 produces a different digest and rejects every event — refuses a delivery whose own
 timestamp is more than five minutes from now in either direction, then persists the
 payload, enqueues under the provider's event id, and returns 200. The window bounds
-a replay; the event id is what makes processing exactly-once, because
-`dedupe_key` is unique only while a job is pending. Providers retry within
-seconds, and an LLM or outbound API call does not fit inside that window.
+a replay; it does not make delivery exactly-once. The unique `(provider, event id)`
+row on `webhook_event` does — the durable guard, and the one still standing when a
+provider signs no timestamp at all. The queue's `dedupe_key` is the second half and
+not a substitute for the first: unique only `WHERE status IN ('pending', 'running')`,
+it collapses a burst of provider retries into the job still in flight and stops
+remembering the event the moment that job settles. Providers retry within seconds,
+and an LLM or outbound API call does not fit inside that window.
 
 ## Transactional email
 
