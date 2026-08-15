@@ -21,8 +21,9 @@ export interface Expectation {
 	why: string;
 }
 
-// Deliberately 201 statements. The rule counts every line that is not blank,
-// comments included, so all that matters is that there is one line too many.
+// Deliberately 201 statements. A block comment's interior does not count toward
+// the cap, however tall (`//` lines and blank lines do), so a fixture padded
+// with prose could report a working rule as dead. Statements always count.
 const LONG_FILE = `${Array.from({ length: 201 }, (_, index) => `export const value${index} = ${index};`).join("\n")}\n`;
 
 // Three bodies that recur, because Biome resolves noRestrictedImports

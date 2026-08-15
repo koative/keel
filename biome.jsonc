@@ -56,9 +56,9 @@
       },
       "style": {
         /**
-         * Measured, not assumed: this counts CODE lines. Comment lines are not
-         * counted, and neither is the interior of a multi-line template literal
-         * (one statement, however tall). Blank lines are.
+         * Measured, not assumed: a block comment's interior is not counted,
+         * however tall, and neither is the interior of a multi-line template
+         * literal (one statement). Blank lines and `//` lines are counted.
          *
          * So `wc -l` and this rule disagree, sometimes by a lot, and that is the
          * behaviour to want: a thorough comment explaining WHY should never push
