@@ -4,8 +4,8 @@ import { markProcessed } from "../webhooks.repository";
 const webhookProcessPayload = z.object({
 	eventId: z.string().min(1),
 	provider: z.string().min(1),
-	// Carried for observability only; the row's `received_at` is authoritative.
-	receivedAt: z.string(),
+	// Nothing else: the row this names carries `received_at` and `raw_body`, and
+	// the handler reads it by (provider, eventId).
 });
 
 /**

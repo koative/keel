@@ -186,21 +186,13 @@ describe.skipIf(!ready)("webhook receiver", () => {
 		const d = delivery({ at, payload: body });
 
 		await post("generic", d.header, body, unixSeconds(at));
-		await webhookProcess({
-			eventId: id,
-			provider: "generic",
-			receivedAt: new Date().toISOString(),
-		});
+		await webhookProcess({ eventId: id, provider: "generic" });
 
 		const once = await singleEvent("generic", id);
 		expect(once.processedAt).not.toBeNull();
 
 		// The queue's contract: a redelivered job runs again and does nothing.
-		await webhookProcess({
-			eventId: id,
-			provider: "generic",
-			receivedAt: new Date().toISOString(),
-		});
+		await webhookProcess({ eventId: id, provider: "generic" });
 		const twice = await singleEvent("generic", id);
 		expect(twice.processedAt).toEqual(once.processedAt);
 	});
