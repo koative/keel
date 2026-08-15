@@ -361,11 +361,13 @@ rejected the documented deployment value went unnoticed."
 
 - `VITE_SERVER_URL=/api bun run build` produces an SPA that boots in a browser with no `Invalid environment variables`.
 - `packages/env` has a suite, and it runs under `turbo run test`.
-- `bun run check` is green, and `check-naming` reports 34 suites.
+- `bun run check` is green, and `bun tools/check-naming.ts` exits 0 with the new `packages/env` suite among the files it counted.
+  > This bullet used to name a total — "`check-naming` reports 34 suites". A repository-wide total is not this plan's to promise: it stopped being true the moment the next plan landed a suite, and it reads at HEAD as 51. What this plan can be held to is that the suite it adds is on-convention and counted, which is what the assertion above says.
 - `apps/web/Dockerfile` carries no `SKIP_ENV_VALIDATION`.
 - `.env.example:120-122` is now a true statement about the code, with no edit to `.env.example`.
 
 ## Out of scope
 
-- `serverOrigin` itself has no test, because `apps/web` has no test infrastructure at all. Bootstrapping it is a separate piece of work (TEST-04/TEST-08 territory), and Task 1's schema test already defends the contract that broke.
+- `serverOrigin` itself has no test, because `apps/web` has no test infrastructure at all. Bootstrapping it is a separate piece of work (TEST-04/TEST-08 territory). Task 1's schema test defends only the schema boundary — which values `VITE_SERVER_URL` may hold — and never executes the resolver, so nothing here proves what `serverOrigin` does with a value the schema let through.
+  > Correction (post-execution): this note originally claimed "Task 1's schema test already defends the contract that broke." For one input it asserted the opposite. The suite as shipped pinned `"/"` as accepted, and `"/"` is the single relative value the resolver cannot resolve — `apps/web/src/lib/server-url.ts` strips the trailing slash, `"/"` becomes `""`, and `apps/web/src/lib/auth-client.ts` throws `TypeError: Invalid URL` on `new URL("/api/auth", "")`. The test therefore certified the boot crash this plan exists to prevent, against the rule stated in its own comment ("Anything this schema accepts and that resolver cannot resolve is a boot crash"). Closed in `24507b7`: the relative branch now requires a path segment (`value.length > 1 && !value.startsWith("//")`), and `packages/env/src/server-url.test.ts:29-31` asserts `"/"` is rejected. The schema test now defends the accept set and that one rejection; the resolver's own behaviour — the trailing-slash strip and the `window.location.origin` branch — is still untested.
 - SEC-01 (`?redirect=` open redirect) also lives in `apps/web` and also concerns URL validation. Deliberately not folded in: it is a different bug with a different acceptance test, and a reviewer should be able to reject one without the other.
