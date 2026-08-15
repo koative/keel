@@ -31,12 +31,16 @@ bun run gen:module invoices
 ```
 
 That writes the file set, mounts the internal surface in
-`apps/server/src/app.ts`, and leaves every file compiling. `public/` is written
-but deliberately left unmounted: publishing a `/v1` endpoint is a promise with no
-expiry date, so it takes a deliberate edit. Then fill it in, in this order:
+`apps/server/src/internal-routes.ts` — the router `AppType` derives from, so a
+generated endpoint reaches the typed client — and leaves every file compiling.
+`public/` is written but deliberately left unmounted: publishing a `/v1`
+endpoint is a promise with no expiry date, so it takes a deliberate edit. Then
+fill it in, in this order:
 
 1. **Table** — `packages/db/src/schema/<domain>.ts`, exported from
-   `schema/index.ts`. Org-scoped like every tenant table: `organizationId` text
+   `schema/index.ts`. Use the table name the generator printed, or edit `TABLE`
+   in both generated suites: they gate on it and announce which name they are
+   waiting for. Org-scoped like every tenant table: `organizationId` text
    notNull referencing `organization.id` with `onDelete: "cascade"`, and
    `createdBy` text nullable referencing `user.id` with `onDelete: "set null"` —
    removing a member must not delete the organization's work. Unique constraints
@@ -134,9 +138,12 @@ directory. A package-wide harness — a preload, an HTTP client, a seeder — is
 application source: it lives at the package root as `test-<what>.ts`.
 `bun tools/check-naming.ts` enforces all three and runs in `bun run check`.
 
-Integration suites gate on `testDbReady()` and announce the skip. Do not mock
-Drizzle — the thing under test is whether the query is right. Do not test Zod,
-Hono or Drizzle themselves, and do not chase a coverage number.
+Integration suites gate on `testDbReady()` and announce the skip; one written
+before its table exists also gates on `tableExists(TABLE)` and names the table
+it is waiting for, so a suite that has never run cannot read as one that
+passed. Do not mock Drizzle — the thing under test is whether the query is
+right. Do not test Zod, Hono or Drizzle themselves, and do not chase a coverage
+number.
 
 Never add a `__snapshots__` file for a public contract. `bun test -u` can re-bless
 one without anyone reading the diff, which is the accident the contract test exists
