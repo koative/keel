@@ -617,7 +617,8 @@ export async function sweepSettledJobs(olderThan: Date): Promise<number> {
 cd apps/server && bun test src/lib/jobs.test.ts src/lib/jobs.ownership.test.ts src/lib/sweep.test.ts
 ```
 
-Expected: every test passes, no skip notice. These suites share the `job` table and both truncate it in `beforeEach`, so a green run here is also the proof that the new suite does not tread on the existing ones.
+Expected: every test passes, no skip notice.
+> **Corrected.** This line originally read: "These suites share the `job` table and both truncate it in `beforeEach`, so a green run here is also the proof that the new suite does not tread on the existing ones." The premise was the defect. A `beforeEach` truncate is what plan 017 (TEST-01) exists to remove, and `sweep.test.ts` shipped with one, which is how this plan re-introduced the wipe 017 had just closed — so far from proving the suites do not tread on each other, the truncate was them treading on each other and on `packages/mail`'s queue suite. No suite truncates now: each deletes only rows it created (`sweep.test.ts` by its own per-run `kind`). That is what makes a green run here mean anything, and it means it whether or not the suites are run together.
 
 - [x] **Step 7: Prove the whole gate is green**
 
