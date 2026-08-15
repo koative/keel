@@ -3,6 +3,7 @@ import type { Storage } from "@keel/storage/client";
 import { skipNotice, testDbReady } from "../../../../test-db";
 import type { Envelope, ErrorEnvelope } from "../../../../test-http";
 import type { StorageEnv } from "../../../lib/storage";
+import { CREDENTIALS } from "../../../lib/storage.fixtures";
 
 /**
  * The handlers resolve storage through `@/lib/storage`. This suite pins the
@@ -46,24 +47,23 @@ if (!ready) {
 const api = createClient();
 
 /**
- * A fully configured storage environment, `custom` so the endpoint and
- * addressing style are stated outright — the same fixture the real
- * `resolveStorage` guard accepts in `lib/storage.test.ts`. Presigned URLs are
+ * A fully configured storage environment: the shared credentials fixture the
+ * real `resolveStorage` guard accepts in `lib/storage.test.ts`, plus a `custom`
+ * provider so the endpoint and addressing style are stated outright and the
+ * signed URL has a host and path this suite can assert on. Presigned URLs are
  * signed by the real S3 client, exactly as in the package's own tests.
  */
 const CONFIGURED: StorageEnv = {
-	STORAGE_ACCESS_KEY_ID: "keel-test-key",
-	STORAGE_BUCKET: "keel",
+	...CREDENTIALS,
 	STORAGE_ENDPOINT: "http://localhost:9000",
 	STORAGE_FORCE_PATH_STYLE: true,
 	STORAGE_PROVIDER: "custom",
-	STORAGE_SECRET_ACCESS_KEY: "keel-test-secret",
 };
 
 const SIGNATURE = /^[0-9a-f]{64}$/;
 
 /** The key always lands under the caller's own organization prefix. */
-const TENANT_KEY_PATH = /^\/keel\/org_[^/]+\/avatars\/me\.png$/;
+const TENANT_KEY_PATH = /^\/keel-files\/org_[^/]+\/avatars\/me\.png$/;
 
 /**
  * End to end through the real stack — auth guard, validator, handler, resolver,

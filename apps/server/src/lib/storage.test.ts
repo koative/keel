@@ -1,12 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { resolveStorage, type StorageEnv } from "./storage";
-
-/** Credentials and bucket, which every provider needs and none can derive. */
-const BASE: StorageEnv = {
-	STORAGE_ACCESS_KEY_ID: "key",
-	STORAGE_BUCKET: "keel-files",
-	STORAGE_SECRET_ACCESS_KEY: "secret",
-};
+import { CREDENTIALS } from "./storage.fixtures";
 
 /** The guard is identified by the variables it names, which is its whole job. */
 const BUCKET_KEY = /STORAGE_BUCKET/;
@@ -36,7 +30,7 @@ describe("resolveStorage without credentials", () => {
 
 	it("names only the key that is missing", () => {
 		const message = messageFrom({
-			...BASE,
+			...CREDENTIALS,
 			STORAGE_PROVIDER: "r2",
 			STORAGE_SECRET_ACCESS_KEY: undefined,
 		});
@@ -49,7 +43,11 @@ describe("resolveStorage without credentials", () => {
 		// `emptyStringAsUndefined` covers this for the process environment, but a
 		// deployment that writes `STORAGE_BUCKET=` must not slip past the guard.
 		expect(() =>
-			resolveStorage({ ...BASE, STORAGE_BUCKET: "", STORAGE_PROVIDER: "minio" })
+			resolveStorage({
+				...CREDENTIALS,
+				STORAGE_BUCKET: "",
+				STORAGE_PROVIDER: "minio",
+			})
 		).toThrow(BUCKET_KEY);
 	});
 });
@@ -58,7 +56,7 @@ describe("resolveStorage per provider", () => {
 	it("wires r2 to the account host with the bucket in the path", () => {
 		const url = new URL(
 			resolveStorage({
-				...BASE,
+				...CREDENTIALS,
 				STORAGE_ACCOUNT_ID: "8f2a1c0d",
 				STORAGE_PROVIDER: "r2",
 			}).createDownloadUrl("org_abc/a.png", { expiresInSeconds: 60 })
@@ -71,7 +69,7 @@ describe("resolveStorage per provider", () => {
 	it("wires s3 to the bucket subdomain with the key alone in the path", () => {
 		const url = new URL(
 			resolveStorage({
-				...BASE,
+				...CREDENTIALS,
 				STORAGE_PROVIDER: "s3",
 				STORAGE_REGION: "eu-west-1",
 			}).createDownloadUrl("org_abc/a.png", { expiresInSeconds: 60 })
@@ -84,7 +82,7 @@ describe("resolveStorage per provider", () => {
 	it("wires custom to the endpoint and style the deployment states", () => {
 		const url = new URL(
 			resolveStorage({
-				...BASE,
+				...CREDENTIALS,
 				STORAGE_ENDPOINT: "https://s3.eu-central-1.wasabisys.com",
 				STORAGE_FORCE_PATH_STYLE: true,
 				STORAGE_PROVIDER: "custom",
@@ -98,25 +96,25 @@ describe("resolveStorage per provider", () => {
 
 describe("resolveStorage provider inputs", () => {
 	it("names the region an s3 bucket needs", () => {
-		expect(messageFrom({ ...BASE, STORAGE_PROVIDER: "s3" })).toContain(
+		expect(messageFrom({ ...CREDENTIALS, STORAGE_PROVIDER: "s3" })).toContain(
 			"STORAGE_REGION"
 		);
 	});
 
 	it("names the account id an r2 bucket needs", () => {
-		expect(messageFrom({ ...BASE, STORAGE_PROVIDER: "r2" })).toContain(
+		expect(messageFrom({ ...CREDENTIALS, STORAGE_PROVIDER: "r2" })).toContain(
 			"STORAGE_ACCOUNT_ID"
 		);
 	});
 
 	it("names the endpoint a self-hosted bucket needs", () => {
-		expect(messageFrom({ ...BASE, STORAGE_PROVIDER: "minio" })).toContain(
-			"STORAGE_ENDPOINT"
-		);
+		expect(
+			messageFrom({ ...CREDENTIALS, STORAGE_PROVIDER: "minio" })
+		).toContain("STORAGE_ENDPOINT");
 	});
 
 	it("names both facts a custom endpoint needs", () => {
-		const message = messageFrom({ ...BASE, STORAGE_PROVIDER: "custom" });
+		const message = messageFrom({ ...CREDENTIALS, STORAGE_PROVIDER: "custom" });
 
 		expect(message).toContain("STORAGE_ENDPOINT");
 		expect(message).toContain("STORAGE_FORCE_PATH_STYLE");
@@ -127,7 +125,7 @@ describe("resolveStorage provider inputs", () => {
 		// hand, r2 derives its own from the account id, and the request 403s with
 		// credentials that were correct the whole time.
 		const message = messageFrom({
-			...BASE,
+			...CREDENTIALS,
 			STORAGE_ACCOUNT_ID: "8f2a1c0d",
 			STORAGE_ENDPOINT: "https://8f2a1c0d.r2.cloudflarestorage.com",
 			STORAGE_PROVIDER: "r2",
@@ -139,7 +137,7 @@ describe("resolveStorage provider inputs", () => {
 
 	it("refuses an addressing style the provider would ignore", () => {
 		const message = messageFrom({
-			...BASE,
+			...CREDENTIALS,
 			STORAGE_FORCE_PATH_STYLE: false,
 			STORAGE_PROVIDER: "s3",
 			STORAGE_REGION: "eu-west-1",
@@ -150,7 +148,7 @@ describe("resolveStorage provider inputs", () => {
 
 	it("refuses a region a self-hosted endpoint would ignore", () => {
 		const message = messageFrom({
-			...BASE,
+			...CREDENTIALS,
 			STORAGE_ENDPOINT: "http://minio.internal:9000",
 			STORAGE_PROVIDER: "minio",
 			STORAGE_REGION: "us-east-1",
