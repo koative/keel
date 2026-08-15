@@ -11,7 +11,8 @@
 1. `apps/server/src/lib/jobs.test.ts:53-55` — `beforeEach(async () => { await db.delete(job); });`
 2. `apps/server/src/lib/jobs.ownership.test.ts:39-41` — the same full-table wipe.
 3. The fix model already exists in the repo: `packages/mail/src/queue.test.ts:76-81` — `afterEach` deletes only `keys.splice(0)` (keys its own tests registered via a `freshKey()` helper, queue.test.ts:46-57). No full-table delete anywhere.
-4. `apps/server/src/lib/jobs.reaper.test.ts` (landed in plan 011) and `jobs.dedupe.test.ts` (plan 024) already use the id-scoped pattern — they stage rows and clean up by id in `afterEach`, and deliberately do not wipe.
+4. `apps/server/src/lib/jobs.reaper.test.ts` (landed in plan 011) already uses the id-scoped pattern — it stages rows and cleans up by id in `afterEach`, and deliberately does not wipe.
+   > **Corrected after execution — this item was false, and the falsehood scoped the plan.** It originally also named `jobs.dedupe.test.ts` (plan 024) as already id-scoped. That suite has run `beforeEach(async () => { await db.delete(job); })` since the commit that created it (`d84471a`, 25 commits before this plan landed at `1c3265d`), with no `afterEach` and no `staged` array at all. Believing it clean is why this plan's file structure lists only two suites: `jobs.settlement.test.ts` was wiping too and was never looked at, and plan 026 then added a third at `sweep.test.ts`. The wipe race was therefore only ever closed for `jobs.test.ts` and `jobs.ownership.test.ts`; the other three are closed by the follow-up work recorded under "Done when".
 
 ## Global Constraints
 
@@ -62,7 +63,8 @@
 
 ## Done when
 
-- Neither server job suite runs `db.delete(job)` with no filter anymore.
+- Neither of the two suites this plan owns — `jobs.test.ts` and `jobs.ownership.test.ts` — runs `db.delete(job)` with no filter anymore.
+  > **Scope note.** As written this bullet reads as a claim about the repository, and as such it was false when the plan was closed: `jobs.dedupe.test.ts:47`, `jobs.settlement.test.ts:92` and `sweep.test.ts:64` were all still wiping the whole table, for the reason recorded against evidence item 4. All three were converted in follow-up work, so `db.delete(job)` now appears in `apps/server` only behind a filter — by staged id, by the suite's own `kind`, or by `dedupe_key`. Two of them also needed their assertions weaned off an empty table rather than merely re-scoped: `jobs.runner.test.ts` and `jobs.settlement.test.ts` drive `runOnce`, which claims globally and hands every foreign due row to `runJob`, so they now backdate their own rows and bound the batch instead of relying on being alone in the table.
 - Both suites pass in isolation and concurrently with the mail suite.
 - No other file was touched.
 
