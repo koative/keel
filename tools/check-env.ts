@@ -16,6 +16,13 @@
  * `.env.example`, `apps/server/.env`, `.env.test` and `x-app-env` — and a rule
  * stated in prose is a rule that drifts. This is the same rule, executable.
  *
+ * It also checks the shape of each forwarded value, because a key present in the
+ * block but supplied by it is worse than a key missing from it: `MAIL_DRIVER:
+ * log` deploys, and mails to stdout while looking healthy. No environment
+ * variable gets a default, so a required key arrives as `${KEY:?...}` and an
+ * optional one as `${KEY:-}` — never `${KEY:-something}`, never a literal
+ * outside PINNED_LITERAL below.
+ *
  * `.env.test` is deliberately not checked: it is a fixture holding only what a
  * test run needs, not a mirror of the schema.
  */
@@ -56,6 +63,19 @@ const COMPOSE_TOP_LEVEL = /^\S/;
  * agree on — not a value `@keel/env` reads.
  */
 const NOT_IN_SCHEMA: Record<string, true> = { TZ: true };
+
+/**
+ * The two keys `x-app-env` sets to a literal instead of forwarding, and why each
+ * is not a default: `NODE_ENV` is what makes this file the production topology,
+ * and `DATABASE_URL` is composed here from `POSTGRES_PASSWORD` and `POSTGRES_DB`
+ * so the server and Postgres cannot disagree about the credentials. Every other
+ * key must arrive from the deploy environment — a literal anywhere else is the
+ * default this repository does not allow.
+ */
+const PINNED_LITERAL: Record<string, true> = {
+	DATABASE_URL: true,
+	NODE_ENV: true,
+};
 
 function schemaKeys(source: string): Map<string, boolean> {
 	const keys = new Map<string, boolean>();
@@ -169,9 +189,27 @@ for (const [key, optional] of declared) {
 		continue;
 	}
 
-	if (optional && value.includes(":?")) {
+	if (PINNED_LITERAL[key]) {
+		continue;
+	}
+
+	if (optional) {
+		if (value.includes(":?")) {
+			problems.push(
+				`${COMPOSE}: x-app-env forwards the optional key ${key} as \`${value}\`. The \`:?\` form refuses the deploy when it is unset, which turns an opt-in feature into a requirement. Use \`\${${key}:-}\`.`
+			);
+		} else if (value !== `\${${key}:-}`) {
+			problems.push(
+				`${COMPOSE}: x-app-env forwards the optional key ${key} as \`${value}\`, which supplies a value the deploy did not set. No environment variable gets a default here. Use \`\${${key}:-}\`, which passes an absent variable through as absent.`
+			);
+		}
+
+		continue;
+	}
+
+	if (!value.startsWith(`\${${key}:?`)) {
 		problems.push(
-			`${COMPOSE}: x-app-env forwards the optional key ${key} as \`${value}\`. The \`:?\` form refuses the deploy when it is unset, which turns an opt-in feature into a requirement. Use \`\${${key}:-}\`.`
+			`${COMPOSE}: x-app-env forwards the required key ${key} as \`${value}\` instead of \`\${${key}:?${key} is required}\`. A value this file supplies is a default, and a default is how a deployment ends up running on it while looking healthy. Add it to PINNED_LITERAL in this script only if the literal is the point, as it is for NODE_ENV.`
 		);
 	}
 }
