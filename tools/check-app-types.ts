@@ -17,10 +17,13 @@ import { $ } from "bun";
 
 const BUNDLE = "apps/server/types/app.d.mts";
 
-// The signatures of a `/v1`-shaped branch in the emitted bundle: phantom
-// generics with no declaration in the file, and `output: any` where every
-// internal endpoint carries a concrete body.
+// Plan 029's rule, checked literally: a `/v1` path in the bundle means the
+// frozen contract is back in the client's surface, whether or not its types
+// resolve. The rest are the signatures of a `/v1`-shaped branch that tsc does
+// not always surface — phantom generics with no declaration in the file, and
+// `output: any` where every internal endpoint carries a concrete body.
 const PHANTOMS = [
+	'"/v1',
 	'R["request"]',
 	'R_1["request"]',
 	"Part extends keyof R",
@@ -31,14 +34,16 @@ const bundle = resolve(BUNDLE);
 
 const contents = await readFile(bundle, "utf8").catch(() => null);
 if (contents === null) {
-	console.error(`${BUNDLE} is missing. Run: bun run build:types -F server`);
+	console.error(
+		`${BUNDLE} is missing. Run: bun run --filter server build:types`
+	);
 	process.exit(1);
 }
 
 for (const phantom of PHANTOMS) {
 	if (contents.includes(phantom)) {
 		console.error(
-			`${BUNDLE} carries ${phantom} — the bundle regressed to the frozen /v1 surface. Regenerate it from app-type.ts: bun run build:types -F server`
+			`${BUNDLE} carries ${phantom} — the bundle regressed to the frozen /v1 surface. Regenerate it from app-type.ts: bun run --filter server build:types`
 		);
 		process.exit(1);
 	}
@@ -76,7 +81,7 @@ try {
 		console.error(
 			`${BUNDLE} does not typecheck with skipLibCheck off:\n` +
 				result.stderr.toString() +
-				"\nRegenerate it from app-type.ts: bun run build:types -F server"
+				"\nRegenerate it from app-type.ts: bun run --filter server build:types"
 		);
 		process.exit(1);
 	}
