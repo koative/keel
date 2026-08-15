@@ -705,14 +705,14 @@ choices its introduction promises."
 - `cd apps/server && NODE_ENV=production TRUSTED_IP_HEADER=x-forwarded-for TRUSTED_PROXIES=10.0.0.0/8 BUN_PORT=3099 bun src/index.ts` prints the posture line, then listens.
 - An unconfigured development boot still starts, and its first line says Better Auth falls back to 127.0.0.1.
 - `bun test src/lib/client-ip.test.ts` reports 6 passing tests, and `bun run check` is green.
-- `grep -rn "not forgeable\|unforgeable\|coarse, but" .env.example README.md docker-compose.prod.yml packages/auth/src/index.ts packages/env/src/server.ts` returns nothing.
-- `packages/auth/src/index.ts` and `packages/env/src/server.ts` have no executable change: `git diff -U0` over the pair shows comment lines only.
+- `grep -rn "not forgeable\|unforgeable\|coarse, but" .env.example README.md docker-compose.prod.yml packages/auth/src/index.ts packages/env/src/server.ts` returns exactly one line, `packages/auth/src/index.ts:55`, and that line *negates* the claim: "an unset header is not the coarse-but-unforgeable bucket it reads like." No file asserts it any more. (The original bullet demanded zero matches. `f549e1e`, this plan's own documentation commit, satisfied the intent and falsified the letter — the honest replacement comment has to name the false claim in order to deny it.)
+- This plan's own commits are comment-only on `packages/auth/src/index.ts` and `packages/env/src/server.ts`: `git show f549e1e -U0 -- packages/auth/src/index.ts packages/env/src/server.ts` yields no non-comment `+`/`-` line. Scoped to those commits rather than to a tree-wide `git diff`, because plans 008 and 013 and the webhook work later added `requireEmailVerification: true`, the `session` block and `WEBHOOK_SECRET` to that same pair.
 
 ## Out of scope
 
 - **`TRUSTED_PROXIES` set without `TRUSTED_IP_HEADER`** is not refused. `packages/auth/src/index.ts:75-77` only spreads `trustedProxies` inside the header branch, so the value is inert rather than dangerous — and in production the missing header is already a refusal, which covers the only case where it could matter.
 - **Routing Better Auth's own `logger` into evlog** so its warnings become wide events. A real improvement, unrelated to whether the deployment boots, and it would need a decision about every other Better Auth warning.
-- **SEC-02, unverified accounts signing in** (`plans/audit-report.md:51-57`) touches `emailAndPassword` in the same file and belongs to plan 007. Note that `plans/audit-report.md:25` mislabels the summary row for SEC-03 with SEC-02's title; the detail section at 59-65 is the finding this plan implements.
+- **SEC-02, unverified accounts signing in** (`plans/audit-report.md:51-57`) touches `emailAndPassword` in the same file and belongs to plan 008 (plan 007 is SEC-01, the open redirect). Note that `plans/audit-report.md:25` mislabels the summary row for SEC-03 with SEC-02's title; the detail section at 59-65 is the finding this plan implements.
 - **SEC-04, `MAIL_DRIVER=log` in production** (`plans/audit-report.md:67-74`). Same shape of fix — a production refusal in a `resolve*` — but `resolveMailConfig` is called from `worker.ts:45`, not from the API entry point, so it is a different guard in a different process.
 - **`docker-compose.prod.yml`'s `x-app-env` key list** belongs to plan 019. **README counts and `AGENTS.md`** belong to plan 021.
 - **Tuning `CREDENTIAL_RULE` or the `rateLimit` defaults.** The limits are not the finding; the key they are counted against is.
