@@ -19,12 +19,12 @@
 - `bun run check` must pass at the end of the task (the lead runs the full gate; run targeted checks yourself).
 - All code, comments and commit messages in English.
 - Test DB is up; `bun run db:test:migrate` once before DB tests.
-- **Never edit a committed migration's historical output.** The fix is a NEW numbered migration (0006) that repairs the column for 0000-era databases, not a rewrite of 0001.
+- **Resolved as Option A (Step 1): 0001 was edited in place, and no new migration was created.** A repair migration ordered after 0001 can never run on the database that needs it — 0001 aborts first and the runner stops — so the only mechanical fix is making 0001 itself apply. This is an exception, not the new rule: every other committed migration stays frozen.
 - `tools/check-migrations.ts` must stay green (schema ↔ migrations drift gate).
 
 ## Do not
 
-- Do not edit `0001_organizations_jobs.sql`. Committed migration files are immutable history; the repo's own drift tooling and the ARCH-05 hand-edit precedent both treat them as frozen.
+- ~~Do not edit `0001_organizations_jobs.sql`.~~ **Superseded by Step 1's Option A — do not read this line as the standing rule.** 0001 was edited in place, matching the ARCH-05 hand-edit precedent the file already carries. It is safe for an already-migrated database because drizzle gates re-application on the stored `created_at` against the journal's `when`, which is unchanged, and never compares the sha256 it stores; the final schema is byte-identical either way.
 - Do not delete or alter 0000-era data.
 - Do not add a DEFAULT to `organization_id` in the schema — the final schema stays exactly as it is; the repair belongs in migration SQL only.
 
@@ -32,12 +32,13 @@
 
 | File | Responsibility |
 |---|---|
-| `packages/db/src/migrations/0006_project_organization_backfill.sql` | **Create.** The repair migration. |
-| `packages/db/src/migrations/meta/*` | **Modify** (generated only — see Task 1 Step 3; never hand-edit). |
+| `packages/db/src/migrations/0001_organizations_jobs.sql` | **Modify** (Option A). The failing `ADD COLUMN ... NOT NULL` becomes add-nullable → backfill → `SET NOT NULL`. |
+| `packages/db/src/migrations/0006_project_organization_backfill.sql` | ~~Create.~~ **Not created** — Option A needs no repair migration, and 0006 is taken by plan 012. |
+| `packages/db/src/migrations/meta/*` | **Untouched.** The schema did not change, so nothing regenerates. |
 
 ### Task 1: The repair migration
 
-**Files:** migration 0006 + meta
+**Files:** `packages/db/src/migrations/0001_organizations_jobs.sql`
 
 - [x] **Step 1:** Understand the exact failure: a 0000-era DB has a `project` table with rows (columns per 0000: `id`, `name`, `slug`(?), `owner_id`, timestamps — read `0000_initial.sql` for the true 0000 project shape) and a `user` table, but **no** `organization`/`member` tables (0001 creates them). The repair must run AFTER 0001 has created organizations/members but BEFORE... no — the problem is 0001 itself fails on the non-empty project table. So the repair cannot run after 0001 if 0001 aborted.
   **Resolution:** the 0000-era operator's migration runner applies 0001, it aborts on the `NOT NULL` column, and the runner stops. The only durable fix is: 0001 must be made to apply on a non-empty project table. Since committed 0001 is frozen, the **operator-facing** repair is a documented 0006 that a 0000-era operator applies by first letting 0001 partially apply, then repairing — which is not how drizzle migrations work.
@@ -46,6 +47,7 @@
   - **Option B (fallback if the lead/plan direction is strictly no-edit):** ship 0006 as a documentation-plus-guard migration that fails loudly with a clear message when the 0000-era state is detected (no real repair possible), and record the manual SQL in a comment. Only choose this if Option A is vetoed — Option B does not fix the finding.
   Prefer **Option A**; it is the honest fix and the file already has hand-edit precedent. State your choice and rationale in the commit message.
 - [x] **Step 2:** Backfill source: 0000-era projects have `owner_id` (the user). 0001 creates `organization` and `member` in the same migration. The backfill must give each project an organization: create one organization per distinct project `owner_id` (slug from user id, name "Default", or per-project orgs — read 0001's organization/member schema and the `project` table's 0000 columns to pick a deterministic, sensible mapping), insert a member row (owner role), and update the project's `organization_id`. Keep it deterministic and idempotent.
+  - **Delivered:** deterministic, not idempotent. The `ON CONFLICT ("id") DO NOTHING` clauses that carried the idempotence intent were unreachable — `organization` and `member` are created empty in the same file and the same transaction, and each insert's source is `"user"`, keyed by its primary key — so they were removed; drizzle never replays a migration in any case.
 - [x] **Step 3:** If you edited 0001 (Option A): the file already ends with the schema-matching state, so no new 0006 is needed and meta/ is untouched — verify `bun tools/check-migrations.ts` is green (it regenerates against the schema, which is unchanged). If you shipped 0006 instead (Option B): generate meta via `drizzle-kit generate --name project_organization_backfill` — but a no-op schema diff produces no migration, so you must hand-write the 0006 .sql plus journal/snapshot entries carefully or use the `drizzle-kit generate` after a temporary schema tweak — prefer Option A to avoid this entirely.
 - [x] **Step 4:** Prove it: `bun run db:test:migrate` on a fresh test DB (green), then simulate the 0000-era path: create a scratch DB, apply only `0000_initial.sql` (via `bunx drizzle-kit migrate` or psql), insert a `user` and a `project` row, then run the full migration chain — it must apply without error and the project row must end up with an `organization_id` that exists in `organization`. Delete the scratch DB after. If the repo has a tool for this, use it; otherwise psql against the test postgres on :5433 is fine — record the exact commands in your report.
 - [x] **Step 5:** Commit: `fix(db): 0001 applies to a 0000-era database with project rows`.
