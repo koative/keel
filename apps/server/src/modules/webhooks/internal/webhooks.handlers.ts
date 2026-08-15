@@ -65,6 +65,26 @@ function parseDelivery(
 	};
 }
 
+/**
+ * The verified bytes as text, or a refusal.
+ *
+ * Fatal on purpose. The default decoder replaces any byte sequence that is not
+ * valid UTF-8 with U+FFFD, and such a delivery still verifies — the digest was
+ * computed over the bytes, not over the decode — and still parses when the bad
+ * bytes sit inside a JSON string. The row would then hold something other than
+ * what was signed, while `webhook_event.raw_body` promises the payload survives
+ * byte for byte and a consumer re-verifying from the row would fail. A payload
+ * that cannot round-trip is refused, not corrupted on the way to the record.
+ */
+function decodeVerified(rawBody: ArrayBuffer): string {
+	try {
+		return new TextDecoder("utf-8", { fatal: true }).decode(rawBody);
+	} catch {
+		// biome-ignore lint/style/useErrorCause: the decoder's TypeError says only that the bytes are not UTF-8, which is what this 400 already says; `@keel/http`'s factories take a detail and no cause, and widening one for a message it repeats is not worth a layer change.
+		throw badRequest("The verified payload is not valid UTF-8");
+	}
+}
+
 /** The event id a provider grammar names in the payload. */
 function parseEventId(rawBody: string): string | null {
 	try {
@@ -155,7 +175,7 @@ export async function receive(c: ReceiveContext) {
 		throw unauthorized();
 	}
 
-	const rawText = new TextDecoder().decode(rawBody);
+	const rawText = decodeVerified(rawBody);
 	const eventId = parseEventId(rawText);
 	if (eventId === null) {
 		throw badRequest("The verified payload carries no string `id` field");

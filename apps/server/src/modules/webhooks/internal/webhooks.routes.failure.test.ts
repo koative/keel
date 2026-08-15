@@ -18,16 +18,17 @@ if (!ready) {
 const api = createClient();
 
 /**
- * The delivery the receiver must not record.
+ * The deliveries the receiver must not record.
  *
- * `webhooks.routes.test.ts` covers the ones that verify and land. This is the
- * case where a 200 would be a lie: an event that persisted but could not be
- * queued. Driven through `app.request()` like the main suite, because it is the
- * receiver's ordering — verify, persist, enqueue — that is under test.
+ * `webhooks.routes.test.ts` covers the ones that verify and land. These two are
+ * the cases where a 200 would be a lie: bytes that cannot be stored as the bytes
+ * that were signed, and an event that persisted but could not be queued. Both
+ * are driven through `app.request()` like the main suite, because it is the
+ * receiver's ordering — verify, decode, persist, enqueue — that is under test.
  */
 
 const eventId = () => `evt_${crypto.randomUUID().slice(0, 8)}`;
-const post = (provider: string, signature: string, body: string) =>
+const post = (provider: string, signature: string, body: string | Uint8Array) =>
 	api.request(`/api/webhooks/${provider}`, {
 		body,
 		headers: {
@@ -55,6 +56,24 @@ afterEach(() => {
 });
 
 describe.skipIf(!ready)("webhook receiver failures", () => {
+	it("refuses a verified payload that is not valid UTF-8 as 400", async () => {
+		const id = eventId();
+		const utf8 = new TextEncoder();
+		// 0xff starts no UTF-8 sequence, and it sits inside a JSON string: a
+		// non-fatal decode replaces it with U+FFFD, `JSON.parse` still succeeds,
+		// and the row would then hold bytes the signature never covered. Delivered
+		// to `bare`, whose digest covers the body alone.
+		const raw = Uint8Array.from([
+			...utf8.encode(`{"id":"${id}","note":"`),
+			0xff,
+			...utf8.encode('"}'),
+		]);
+		const signature = createHmac("sha256", SECRET).update(raw).digest("hex");
+
+		expect((await post("bare", signature, raw)).status).toBe(400);
+		expect(await events("bare", id)).toHaveLength(0);
+	});
+
 	it("persists nothing when the enqueue after the insert fails", async () => {
 		const id = eventId();
 		const body = JSON.stringify({ id, type: "thing.created" });
