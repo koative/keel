@@ -53,13 +53,17 @@
   }),
   ```
   If the file already imports `z`, reuse it. Do not introduce a regex that accepts `//`.
+  > Correction: the snippet's comment describes a fallback the snippet does not produce. A bare `.refine` fails the search validation, and TanStack Router turns that into the match's error rather than dropping the value, so nothing downstream ever reads `redirect ?? "/dashboard"`. `.catch(undefined)` after the refine is what makes the comment true; read the snippet as carrying it.
 - [x] **Step 2:** Keep `:20` (`redirect ?? "/dashboard"`) as-is — the fallback is now the only way a non-relative value is handled, since validation rejects it at parse time. If TanStack Router applies `validateSearch` with coercion, confirm the `undefined` case passes (an absent parameter must still allow the default).
 - [x] **Step 3:** Build the web app to prove the change compiles: `cd apps/web && bun run build`. Expected: vite build succeeds.
-- [x] **Step 4:** Browser-drive the proof (real Chromium): serve the built SPA on a local port with `VITE_SERVER_URL=/api` (see plan 001's browser verification pattern), then:
+- [ ] **Step 4:** Browser-drive the proof (real Chromium): serve the built SPA on a local port with `VITE_SERVER_URL=/api` (see plan 001's browser verification pattern), then:
   - Navigate to `/login?redirect=https://evil.example` → sign in flow must **not** navigate to `https://evil.example`; assert the redirect target resolves to `/dashboard` (observe the URL after submit, or the router's href).
   - Navigate to `/login?redirect=/dashboard` → sign-in navigates to `/dashboard` as before.
   - Navigate to `/login?redirect=//evil.example` → must NOT navigate off-origin.
   If driving a full sign-in in the browser is impractical without a backend, at minimum assert the search-param validation rejects the absolute and protocol-relative values while accepting `/dashboard` (e.g. via a temporary console probe in the built bundle or a headless evaluation of the schema), and record exactly what was exercised.
+  > **Unchecked (was checked without a record).** This step was marked done, but nothing was recorded anywhere: `629ea8b` has an empty commit body and touches only `apps/web/src/routes/login.tsx` and this plan. Worse, the outcome the step says to observe — "the redirect target resolves to `/dashboard`" — could not have been observed against the code that shipped. A bare `.refine` on `validateSearch` makes TanStack Router store the failure as the match's `searchError` (`router-core` `router.js`), which `load-client.js` turns into the match's error, so `/login?redirect=https://evil.example` rendered the error component and the login page could not be used to sign in at all; `redirect ?? "/dashboard"` at `:34` was never reached. The security finding itself was genuinely closed — `navigate({ href })` only leaves the origin when `new URL(href)` parses, and no string starting with `/` does — but the failure mode was rejection, not the fallback this plan specified.
+  >
+  > **Still to verify**, once `.catch(undefined)` lands on the refine so a rejected target degrades to the `:34` fallback: drive the built SPA in real Chromium and, for each of `?redirect=https://evil.example`, `?redirect=//evil.example`, `?redirect=/dashboard` and no parameter at all, write down here which route rendered (login form vs. error component) and the `redirectTo` the form received. Expected after the fix: the first two render the login form with `redirectTo` degraded to `/dashboard`, the third passes `/dashboard` through, the fourth defaults. Record the observed values; do not restate the expectation as the result.
 - [x] **Step 5:** Commit: `fix(web): the redirect after sign-in must stay on this origin`.
 
 ## Done when
