@@ -34,12 +34,17 @@ export default defineConfig({
 	format: "esm",
 	noExternal: [/@keel\/.*/],
 	outDir: "./dist",
+	// The maps carry mappings only. Without this they embed `sourcesContent`, and
+	// since the runner stage copies `dist/` wholesale, the full TypeScript source
+	// of apps/server and every bundled @keel/* package would ship in the
+	// production image — against the no-source invariant the Dockerfile states.
+	// A stack trace still resolves to a file and a line; only the ability to read
+	// the file out of the artifact is gone.
+	outputOptions: { sourcemapExcludeSources: true },
 	// Emit .map files beside the bundles so wide-event stack traces (evlog,
 	// LOG_DRAIN=otlp) keep their source file/line instead of pointing at line 1
-	// of a bundle column. The output stays unminified — readability is a
-	// deliberate choice for a starter — so the maps are pure attribution, not
-	// a decompiler's key. "hidden" would skip the sourceMappingURL comment but
-	// buys nothing here: dist is not a published artifact and the comment is
-	// what makes `bun dist/index.mjs` resolve sources in tools that read them.
+	// of a bundle column. "hidden" would skip the sourceMappingURL comment but
+	// buys nothing here: dist is not a published artifact and the comment is what
+	// makes `bun dist/index.mjs` attribute frames in tools that read the maps.
 	sourcemap: true,
 });
