@@ -20,9 +20,9 @@ import { readFile, rm } from "node:fs/promises";
  * schema always did) while the generated rename would have kept `owner_id`'s NOT
  * NULL, and the hand-added `DROP NOT NULL` is what makes the replay agree. So the
  * check also replays which columns the committed statements declare, and with
- * what nullability, and compares that with the schema. Those two facts are the
- * ones a hand-edit can drift without drizzle-kit re-emitting anything; the pass
- * below says what it does not cover.
+ * what nullability, and compares that with the schema. Those two facts are all
+ * the replay covers, and a hand-edit can drift others; the pass below names the
+ * ones nothing here sees.
  *
  * How each side is read — the line-oriented replay of the committed statements
  * and the offline read of the schema index — lives in `check-migrations.model`.
