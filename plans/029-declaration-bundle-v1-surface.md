@@ -64,3 +64,33 @@
 
 - **ARCH-02** (the client's `init` option spread) — plan 030, same file family but a different edit; coordinate if concurrent (030 owns `packages/api-client/src/index.ts`'s `hc` call, this plan owns the type source feeding it).
 - Generating `/v1` types from OpenAPI — a bigger project, deliberately not attempted.
+
+## Follow-up (executed, commits `fc0e545`, `674e488`)
+
+Both Done-when clauses hold at HEAD — `apps/server/types/app.d.mts` carries no
+`/v1` branch (`grep -c '"/v1' apps/server/types/app.d.mts` → 0) and
+`bun tools/check-app-types.ts` exits 0 reporting the bundle self-contained with
+`skipLibCheck` off. What this plan also did was ship red. The Global Constraint at
+line 19 says `bun run check` must pass at the end of the task; it did not.
+
+`fc0e545` had to repair this plan's own files: `apps/server/src/app-type.ts`
+imported `internalRoutes` as a value where only its type is used
+(`import { internalRoutes }` → `import type { internalRoutes }`), which Biome
+rejects — verified by piping the pre-`fc0e545` content through
+`bunx biome lint --stdin-file-path=apps/server/src/app-type.ts`, which reports the
+contents are not fixed. Alongside it, `apps/server/src/internal-routes.ts`'s route
+chain and `tools/check-app-types.ts` (import placement, `compilerOptions` key
+order, a template literal with no interpolation, `rm`'s option order) were
+committed unformatted. None of it changes behaviour; all of it fails the gate this
+task reported green.
+
+Why a lint error could ship at all, and the reason several plans in this program
+shipped red without anyone noticing: CI ran `bun run check 2>&1 | tee
+/tmp/check.log` in a step with no `shell:` key, so GitHub invoked it as
+`bash -e {0}` — `-e`, no `pipefail` — and the pipeline's exit status was `tee`'s,
+which is always 0. A failing typecheck, a failing suite, a lint error and every
+`tools/check-*.ts` gate each exited that step green, and the comment above the step
+asserted the opposite. Fixed in `674e488` by declaring `shell: bash` as a workflow
+default, which is what supplies `-eo pipefail`, so the next pipe cannot reintroduce
+the silence. Until that commit, "CI is green" was not evidence for any Done-when in
+this program.
