@@ -13,6 +13,8 @@
 
 **Tech Stack:** Bun, Drizzle ORM (raw `sql` template), PostgreSQL 18, bun:test.
 
+> **Implementation note (executed; reconciled on main at `b8928d3`):** plan **024** landed after this one and widened the partial dedupe index to `job_dedupeKey_unsettled_idx`, unique on `dedupe_key` `WHERE status IN ('pending','running')` (`packages/db/src/schema/job.ts`, migration `0005_dedupe_unsettled_window.sql`). A claimed row therefore **holds its key through the whole in-flight window**, the state this plan's collapse branch defended cannot be constructed, and `b8928d3` deleted that branch and reversed the key policy: the reaper now **keeps `dedupe_key` on the row it requeues**, and `ReclaimedJobs` reports two counts, `exhausted` and `requeued`. The shipped statement is `apps/server/src/lib/jobs.repository.ts:260-350`; the shipped suite is `apps/server/src/lib/jobs.reaper.test.ts` (7 tests). The task bodies below have been rewritten to that design — Task 1's `Interfaces` block and Steps 1, 3 and 4, the `Do not` bullet about the key, and Task 2 Steps 3-5. Two things below are deliberately left as history and must **not** be executed as written: the pre-024 trap in *Verified evidence* (`:64` and `:66-68`), true at the audited commit `39fd32c` and false now, and Task 1 Step 6's commit message, which is the message `a8b9242` actually carried before `b8928d3` reversed it.
+
 ---
 
 ## Verified evidence (do not re-litigate)
@@ -59,9 +61,11 @@ The test suite already names the gap. `apps/server/src/lib/jobs.ownership.test.t
 
    Do not go looking for a missing signal handler; there isn't one. The finding survives for a stronger reason: SIGKILL and the OOM killer are uncatchable by construction, and `shutdown` itself calls `process.exit(1)` when the drain overruns `SHUTDOWN_DEADLINE_MS` (`worker.ts:117`, `:177-182`) — abandoning exactly the rows it was trying to protect. No signal handler can close that.
 
-2. **The audit's claim that the dedupe slot is freed on claim is correct, and it is the trap.** `job_dedupeKey_pending_idx` (`packages/db/src/schema/job.ts:71-73`) is unique on `dedupe_key` `WHERE status = 'pending'`. A claimed row is `running`, so it has left the index and a second `enqueue` of the same key is accepted (`packages/db/src/jobs.ts:52-57`). Nothing performs that re-enqueue today, so the audit's "nothing even blocks a re-enqueue that never happens" is accurate — but the moment a reaper exists, that accepted row is a live conflict: requeueing the stranded row would put a second `pending` entry with the same key into a unique index, and the statement would abort. Task 1 solves this rather than noting it.
+2. **The audit's claim that the dedupe slot is freed on claim is correct, and it is the trap.** *(History: true at `39fd32c`, no longer true — plan 024 widened the index. See the implementation note at the top; do not build the collapse branch this item motivates.)* `job_dedupeKey_pending_idx` (`packages/db/src/schema/job.ts:71-73`) is unique on `dedupe_key` `WHERE status = 'pending'`. A claimed row is `running`, so it has left the index and a second `enqueue` of the same key is accepted (`packages/db/src/jobs.ts:52-57`). Nothing performs that re-enqueue today, so the audit's "nothing even blocks a re-enqueue that never happens" is accurate — but the moment a reaper exists, that accepted row is a live conflict: requeueing the stranded row would put a second `pending` entry with the same key into a unique index, and the statement would abort. Task 1 solves this rather than noting it.
 
 ### One consequence found while designing the fix
+
+*(History, same as the item above: with `job_dedupeKey_unsettled_idx` covering `running`, a second `enqueue` behind a claimed row collapses at insert time, so neither `fail` nor the reaper can meet the `23505` this paragraph describes.)*
 
 `fail` (`jobs.repository.ts:143-170`) sets `status` back to `'pending'` while leaving `dedupe_key` intact, so it has the same exposure: a job that was claimed, had its key re-enqueued behind it, and then threw, will raise `23505` out of `fail`. That rejection propagates out of `runJob` → `runOnce` → the worker loop's catch at `worker.ts:145-152`, which logs `poll failed` and keeps polling — abandoning the failing row *and every remaining row in that batch* in `running`. The reaper built here is a complete net for that path: the conflicting row gets collapsed (a pending duplicate provably exists, since that is the only way the violation can happen) and its batch-mates get requeued. Hardening `fail` itself is deliberately out of scope — see the last section for why it is not a one-liner.
 
@@ -69,7 +73,7 @@ The test suite already names the gap. `apps/server/src/lib/jobs.ownership.test.t
 
 ## Global Constraints
 
-- `bun run check` must pass at the end of every task. It runs typecheck, every suite, Biome/Ultracite, catalog drift, test-naming, 16 architecture rules and migration drift.
+- `bun run check` must pass at the end of every task. It runs typecheck, every suite, Biome/Ultracite, catalog drift, test-naming, the architecture rules and migration drift.
 - All code, comments and commit messages in English.
 - No file over 200 **code** lines (Biome `noExcessiveLinesPerFile`; comment lines and multi-line template literals do not count — which is why the long `sql` block in Task 1 is free).
 - **No environment variable gets a default.** This plan adds no env key at all; Task 2 explains why the threshold is a derived constant instead. If you disagree and add one anyway, it must be required and present in `.env.example`, `apps/server/.env`, `.env.test` **and** `docker-compose.prod.yml`'s `x-app-env` per plan 019 — or `.optional()` and guarded by a `resolve*` that throws naming it.
@@ -81,7 +85,7 @@ The test suite already names the gap. `apps/server/src/lib/jobs.ownership.test.t
 ## Do not
 
 - **Do not settle the stranded row and re-enqueue the work as a new row.** It is the obvious way to dodge the unique index and it breaks billing. `ai.generate` guards a repeat charge with `hasUsageForJob(jobId)` against a unique `ai_usage.job_id` (`apps/server/src/worker.ts:66-88`), and `mail.send` passes `jobId` to the provider as an idempotency key (`worker.ts:58-63`). Both depend on the row id being stable across every attempt. A new id is a new charge and a second email.
-- **Do not restore the `dedupe_key` on a row you requeue.** The row gave up its collapse slot the moment it was claimed — that is the documented behaviour of the partial index, not an accident. Re-acquiring it would let a repeatedly stranded row block a fresh enqueue of the same work, and it is precisely what makes the requeue able to raise `23505`.
+- **Do not drop the `dedupe_key` on a row you requeue.** *(Reversed by `b8928d3`; the original bullet said the opposite, for the pre-024 index.)* Since plan 024, `job_dedupeKey_unsettled_idx` holds the key from enqueue until the row settles, so a claimed row never released its slot and a replacement enqueue collapses at insert time. A requeue is the same work retrying: it keeps the key, and the key stays held until that retry settles — exactly what `fail` does (`jobs.dedupe.test.ts`). Clearing it would open the duplicate window the widened index exists to close.
 - **Do not make reclaiming free of an attempt.** A payload that reliably OOMs the worker leaves no `last_error`, because nothing catches an OOM. Free reclaims would loop it forever, killing a worker each round. `attempts` is the only poison-job bound this queue has; a reclaim must spend one.
 - **Do not pick a round number for the age threshold.** `claim` stamps `locked_at` on the whole batch at once and `runOnce` runs it serially, so the worst legitimate hold is `WORKER_BATCH_SIZE` × the slowest handler's timeout. Task 2 derives it. A threshold shorter than that reclaims rows a live worker is still executing, and the ownership fences make that safe for the *table*, not for the *side effect*.
 - **Do not add a `setInterval` to `apps/server/src/index.ts`.** Three replicas would each run it; a scale-to-zero deployment would run it never. `tasks.ts:15-18` already argues this.
@@ -93,12 +97,12 @@ The test suite already names the gap. `apps/server/src/lib/jobs.ownership.test.t
 | File | Responsibility |
 |---|---|
 | `apps/server/src/lib/jobs.repository.ts` | **Modify.** Add `reclaimStrandedJobs`, the one statement that can move a row out of `running` without the claiming worker. |
-| `apps/server/src/lib/jobs.reaper.test.ts` | **Create.** Integration suite: stale is reclaimed, fresh is not, reclaimed is claimable, attempts are spent, and every dedupe-index case. |
+| `apps/server/src/lib/jobs.reaper.test.ts` | **Create.** Integration suite: stale is reclaimed, fresh is not, reclaimed is claimable, attempts are spent, the last attempt fails, the requeued row keeps its dedupe key, and two unsettled rows cannot share one. |
 | `apps/server/src/tasks.ts` | **Modify.** Derive the threshold from `WORKER_BATCH_SIZE` and the slowest handler timeout, call the reaper, report it. |
 
 ---
 
-### Task 1: `reclaimStrandedJobs`, and the index conflict it must survive
+### Task 1: `reclaimStrandedJobs`, and the dedupe key it must hold on to
 
 **Files:**
 - Create: `apps/server/src/lib/jobs.reaper.test.ts`
@@ -106,7 +110,7 @@ The test suite already names the gap. `apps/server/src/lib/jobs.ownership.test.t
 
 **Interfaces:**
 - Consumes: `job` from `@keel/db/schema/job`, `db` from `@keel/db`, `enqueue` and `claim` from this same module — all already imported or exported there.
-- Produces: `export interface ReclaimedJobs { collapsed: number; exhausted: number; requeued: number }` and `export async function reclaimStrandedJobs(staleAfterMs: number): Promise<ReclaimedJobs>`. Task 2 imports both names from `@/lib/jobs.repository`.
+- Produces: `export interface ReclaimedJobs { exhausted: number; requeued: number }` and `export async function reclaimStrandedJobs(staleAfterMs: number): Promise<ReclaimedJobs>`. Task 2 imports both names from `@/lib/jobs.repository`.
 
 - [x] **Step 1: Write the failing test**
 
@@ -189,15 +193,6 @@ async function rowFor(id: string) {
 	return found;
 }
 
-async function enqueueStaged(dedupeKey: string): Promise<string> {
-	const { id } = await enqueue({ dedupeKey, kind: "test.echo", payload: {} });
-	if (id === null) {
-		throw new Error("expected the replacement job to be enqueued");
-	}
-	staged.push(id);
-	return id;
-}
-
 describe.skipIf(!ready)("stranded job reaper", () => {
 	it("puts a job back on the queue when its worker never came back", async () => {
 		const id = await strand({ lockedAt: hoursAgo(2) });
@@ -271,63 +266,47 @@ describe.skipIf(!ready)("stranded job reaper", () => {
 	});
 
 	/**
-	 * The trap. The partial index covers `pending` only, so the stranded row left
-	 * it when it was claimed and a replacement was accepted behind it. Requeueing
-	 * the stranded row naively would put a second `pending` entry with the same
-	 * key into a unique index and abort the whole statement.
+	 * The reconciled invariant: the dedupe key stays with the work from enqueue
+	 * to settle. A claimed row holds its key through `running`
+	 * (`job_dedupeKey_unsettled_idx` covers both unsettled statuses), so a
+	 * reclaim must not drop it — a retry is the same work, and a retry that
+	 * released its key would let a fresh enqueue of the same key run beside it,
+	 * which is exactly the duplicate window the widened index exists to close.
+	 * `fail` keeps the key for the same reason (`jobs.dedupe.test.ts`).
 	 */
-	it("collapses a stranded job whose dedupe key a newer pending job holds", async () => {
-		const dedupeKey = crypto.randomUUID();
-		const stranded = await strand({ dedupeKey, lockedAt: hoursAgo(2) });
-		const replacement = await enqueueStaged(dedupeKey);
-
-		await reclaimStrandedJobs(STALE_AFTER_MS);
-
-		const abandoned = await rowFor(stranded);
-		expect(abandoned?.status).toBe("failed");
-		expect(abandoned?.lastError).toContain("dedupe key");
-		// Kept on the settled row: it is out of the partial index anyway, and it
-		// is how someone reading the table finds the row that took over.
-		expect(abandoned?.dedupeKey).toBe(dedupeKey);
-
-		// The row that will actually do the work is untouched.
-		const kept = await rowFor(replacement);
-		expect(kept?.status).toBe("pending");
-		expect(kept?.attempts).toBe(0);
-	});
-
-	// Two workers can both hold a `running` row for one key, because the second
-	// enqueue was accepted while the first was in flight. One statement must not
-	// requeue both.
-	it("requeues the older of two stranded jobs sharing a key and collapses the other", async () => {
-		const dedupeKey = crypto.randomUUID();
-		const older = await strand({ dedupeKey, lockedAt: hoursAgo(3) });
-		const newer = await strand({ dedupeKey, lockedAt: hoursAgo(2) });
-
-		await reclaimStrandedJobs(STALE_AFTER_MS);
-
-		expect((await rowFor(older))?.status).toBe("pending");
-
-		const collapsed = await rowFor(newer);
-		expect(collapsed?.status).toBe("failed");
-		expect(collapsed?.lastError).toContain("dedupe key");
-	});
-
-	/**
-	 * The reason the requeue can never raise 23505, even against an `enqueue`
-	 * committed a microsecond after the reaper read the table: the row it writes
-	 * back to `pending` carries no key, so it creates no index entry at all.
-	 */
-	it("releases the dedupe key of the job it requeues", async () => {
+	it("requeues a reclaimed job with its dedupe key still held", async () => {
 		const dedupeKey = crypto.randomUUID();
 		const id = await strand({ dedupeKey, lockedAt: hoursAgo(2) });
 
 		await reclaimStrandedJobs(STALE_AFTER_MS);
 
-		expect((await rowFor(id))?.dedupeKey).toBeNull();
-		// And the key is therefore free, which is what it already was for the two
-		// hours this row spent stranded.
-		await enqueueStaged(dedupeKey);
+		const row = await rowFor(id);
+		expect(row?.status).toBe("pending");
+		expect(row?.dedupeKey).toBe(dedupeKey);
+
+		// The key is not free while the retry waits: an enqueue of the same work
+		// collapses into the retry instead of starting a second execution.
+		const again = await enqueue({ dedupeKey, kind: "test.echo", payload: {} });
+		expect(again.created).toBe(false);
+		expect(again.id).toBeNull();
+	});
+
+	// Before plan 024 widened the dedupe index to cover `running`, a claimed row
+	// left the index and a replacement enqueue was accepted behind it, so the
+	// reaper had to notice a newer pending row holding the stranded row's key
+	// and settle the stranded one `failed`. The index now holds the key through
+	// `running`, so that state cannot be constructed — the second enqueue
+	// collapses at insert time (`jobs.dedupe.test.ts` proves it) — and the
+	// reaper needs no collapse branch. A two-stranded-share-one-key staging
+	// insert now raises 23505 before the reaper ever sees the rows, which is the
+	// invariant itself.
+	it("cannot be presented with two unsettled rows sharing a dedupe key", async () => {
+		const dedupeKey = crypto.randomUUID();
+		await strand({ dedupeKey, lockedAt: hoursAgo(3) });
+
+		await expect(
+			strand({ dedupeKey, lockedAt: hoursAgo(2) })
+		).rejects.toThrow();
 	});
 });
 ```
@@ -347,8 +326,6 @@ Append to `apps/server/src/lib/jobs.repository.ts`, after `sweepSettledJobs`:
 
 ```ts
 export interface ReclaimedJobs {
-	/** Stranded rows whose work a newer pending row already covers. */
-	collapsed: number;
 	/** Stranded rows that spent their last attempt and are now `failed`. */
 	exhausted: number;
 	/** Stranded rows put back on the queue. */
@@ -372,27 +349,15 @@ export interface ReclaimedJobs {
  *
  * ## The dedupe index
  *
- * `job_dedupeKey_pending_idx` is unique on `dedupe_key` where `status =
- * 'pending'`. A claimed row is `running`, so it has already left that index and
- * a second `enqueue` of its key was accepted while it ran. Putting the stranded
- * row back to `pending` would then be a second entry for one key, and the
- * violation would abort the whole batch — one poisoned row costing every other
- * row its recovery.
- *
- * Two independent things stop that, and both are needed.
- *
- * Policy: a row is only requeued when no `pending` row already holds its key,
- * and when it is the oldest lock among the stranded rows that share it.
- * Otherwise the work is already covered, so the row is settled `failed` with the
- * reason on it rather than duplicated.
- *
- * Safety: a requeued row is written back with `dedupe_key = null`, so it creates
- * no index entry and the statement cannot raise 23505 even against an `enqueue`
- * that commits between the policy read and this write. That is not a loss — the
- * row released its collapse slot when it was claimed, and a reclaim restores the
- * attempt, not the claim. Rows that stay settled keep their key, because a
- * `failed` row is outside the index anyway and the key is how someone reading
- * the table finds the row that took over.
+ * `job_dedupeKey_unsettled_idx` is unique on `dedupe_key` where `status` is
+ * `pending` or `running` (`packages/db/src/schema/job.ts`). The key is held
+ * from the moment the work is enqueued until the moment it settles, so a second
+ * `enqueue` of the same key collapses at insert time — there is no window in
+ * which a stranded row and a replacement can share a key. Requeueing therefore
+ * needs no dedupe policy: the row keeps its key, and the key stays held through
+ * the retry until the retry settles, which is exactly what `fail` does for a
+ * handler that threw. A requeue that dropped the key would open the duplicate
+ * window the index exists to close, so the key is deliberately left alone.
  *
  * `for update skip locked` mirrors `claim`: a concurrent reaper takes a disjoint
  * set instead of blocking, and a row a live worker is mid-settle on is stepped
@@ -411,43 +376,14 @@ export async function reclaimStrandedJobs(
 					secs => ${staleAfterMs}::bigint / 1000.0
 				)
 			for update skip locked
-		),
-		ranked as (
-			select
-				j.id as id,
-				j.dedupe_key as dedupe_key,
-				row_number() over (
-					partition by j.dedupe_key order by j.locked_at, j.id
-				) as slot
-			from ${job} j
-			join stale on stale.id = j.id
-		),
-		decided as (
-			select
-				r.id as id,
-				(
-					r.dedupe_key is null
-					or (
-						r.slot = 1
-						and not exists (
-							select 1 from ${job} p
-							where p.dedupe_key = r.dedupe_key
-								and p.status = 'pending'
-						)
-					)
-				) as requeue
-			from ranked r
 		)
 		update ${job}
 		set
 			attempts = ${job.attempts} + 1,
-			dedupe_key = case when d.requeue then null else ${job.dedupeKey} end,
 			last_error = 'stranded: worker '
 				|| coalesce(${job.lockedBy}, 'unknown')
 				|| ' stopped without settling this job'
 				|| case
-					when not d.requeue
-						then '; a newer pending job holds its dedupe key'
 					when ${job.attempts} + 1 >= ${job.maxAttempts}
 						then '; no attempts left'
 					else ''
@@ -456,40 +392,36 @@ export async function reclaimStrandedJobs(
 			locked_by = null,
 			run_at = now(),
 			status = case
-				when not d.requeue then 'failed'
 				when ${job.attempts} + 1 >= ${job.maxAttempts} then 'failed'
 				else 'pending'
 			end,
 			updated_at = now()
-		from decided d
-		where ${job.id} = d.id and ${job.status} = 'running'
-		returning ${job.id}, ${job.status}, d.requeue
+		from stale
+		where ${job.id} = stale.id and ${job.status} = 'running'
+		returning ${job.id}, ${job.status}
 	`);
 
-	// Read out of the returned rows rather than counted with three statements:
+	// Read out of the returned rows rather than counted with two statements:
 	// the outcome per row is decided inside the update, and asking the table
 	// again afterwards would be asking a different snapshot.
-	let collapsed = 0;
 	let exhausted = 0;
 	let requeued = 0;
 	for (const row of reclaimed.rows) {
-		if (row.requeue !== true) {
-			collapsed += 1;
-		} else if (row.status === "failed") {
+		if (row.status === "failed") {
 			exhausted += 1;
 		} else {
 			requeued += 1;
 		}
 	}
 
-	return { collapsed, exhausted, requeued };
+	return { exhausted, requeued };
 }
 ```
 
 Two details that are easy to get wrong and will not fail loudly:
 
 - `run_at = now()`, not the backoff ladder `fail` uses. The row has already waited out `staleAfterMs`, which is longer than `BACKOFF_MAX_MS` at any sane threshold, so a rung on top would be delay for its own sake.
-- `${job.attempts}`, `${job.lockedBy}` and `${job.dedupeKey}` on the right of `set` read the **old** row values. That is standard `UPDATE` semantics and is what `fail` at `jobs.repository.ts:148-165` already relies on.
+- `${job.attempts}` and `${job.lockedBy}` on the right of `set` read the **old** row values. That is standard `UPDATE` semantics and is what `fail` at `jobs.repository.ts:205-232` already relies on.
 
 - [x] **Step 4: Run the test and watch it pass**
 
@@ -497,7 +429,7 @@ Two details that are easy to get wrong and will not fail loudly:
 cd apps/server && bun test src/lib/jobs.reaper.test.ts
 ```
 
-Expected: `8 pass, 0 fail`. If instead you get `duplicate key value violates unique constraint "job_dedupeKey_pending_idx"`, the `dedupe_key = case ... end` line is missing or inverted — that error is the exact failure this design exists to make impossible.
+Expected: `7 pass, 0 fail`. If instead you get `duplicate key value violates unique constraint "job_dedupeKey_unsettled_idx"`, something in the statement is writing a key the row did not already hold, or the staging insert in the last case is being asserted as a success rather than a rejection.
 
 - [x] **Step 5: Prove the whole gate is green**
 
@@ -505,9 +437,11 @@ Expected: `8 pass, 0 fail`. If instead you get `duplicate key value violates uni
 bun run check
 ```
 
-Expected: every turbo task successful; `check-naming` reports one more suite than the run before this task and no violations; 16 architecture rules verified; `check-migrations` reports migrations match, because no schema changed.
+Expected: every turbo task successful; `check-naming` reports one more suite than the run before this task and no violations; `check-rules` exits 0; `check-migrations` reports migrations match, because no schema changed.
 
 - [x] **Step 6: Commit**
+
+*(History: this is the message `a8b9242` carried. `b8928d3` later reversed the dedupe policy it argues for — see the implementation note at the top. Do not reuse the two middle paragraphs.)*
 
 ```bash
 git add apps/server/src/lib/jobs.repository.ts apps/server/src/lib/jobs.reaper.test.ts
@@ -648,7 +582,7 @@ const settledJobs = await sweepSettledJobs(
 const strandedJobs = await reclaimStrandedJobs(STRANDED_JOB_TIMEOUT_MS);
 
 process.stdout.write(
-	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s), ${settledJobs} settled job(s); requeued ${strandedJobs.requeued} stranded job(s), collapsed ${strandedJobs.collapsed}, exhausted ${strandedJobs.exhausted}\n`
+	`[tasks] swept ${expiredKeys} idempotency key(s), ${staleCounters.length} auth rate-limit counter(s), ${idleBuckets} idle token bucket(s), ${settledJobs} settled job(s); requeued ${strandedJobs.requeued} stranded job(s), exhausted ${strandedJobs.exhausted}\n`
 );
 ```
 
@@ -662,7 +596,7 @@ cd apps/server && bun src/tasks.ts
 Expected, with the counts before the semicolon depending on what is in your dev database:
 
 ```
-[tasks] swept 0 idempotency key(s), 0 auth rate-limit counter(s), 0 idle token bucket(s), 0 settled job(s); requeued 0 stranded job(s), collapsed 0, exhausted 0
+[tasks] swept 0 idempotency key(s), 0 auth rate-limit counter(s), 0 idle token bucket(s), 0 settled job(s); requeued 0 stranded job(s), exhausted 0
 ```
 
 The process must exit immediately rather than hanging for thirty seconds — `closePool()` at the end of the file is what makes that true, and the reaper must not have been added after it.
@@ -679,7 +613,7 @@ docker compose exec -T postgres psql -U postgres -d keel -c "insert into job (id
 cd apps/server && bun src/tasks.ts
 ```
 
-Expected: the line now ends `requeued 1 stranded job(s), collapsed 0, exhausted 0`. Confirm the row, then remove it:
+Expected: the line now ends `requeued 1 stranded job(s), exhausted 0`. Confirm the row, then remove it:
 
 ```bash
 docker compose exec -T postgres psql -U postgres -d keel -c "select status, attempts, locked_by, last_error from job where id = 'reaper-smoke'"
@@ -694,7 +628,7 @@ Expected from the select: `pending | 1 | <null> | stranded: worker dead-worker:1
 bun run check
 ```
 
-Expected: every turbo task successful, no naming violations, 16 architecture rules verified, migrations match.
+Expected: every turbo task successful, no naming violations, `check-rules` exits 0, migrations match.
 
 - [x] **Step 7: Commit**
 
@@ -743,6 +677,6 @@ dead worker named in last_error, and the process still exits immediately."
 - **Separating settlement from execution** — plan 010 (CORR-02), which lands first and owns `apps/server/src/lib/jobs.ts`. This plan does not touch that file.
 - **Making the worker loop testable** — plan 016 (TEST-04/05), which lands last.
 - **The Resend fetch timeout** — plan 004 (PERF-01). This plan only reads its constant to bound the threshold; if 004 lands with a value above 120_000 ms, `SLOWEST_HANDLER_MS` in `tasks.ts` must be raised to match it, and that belongs in whichever of the two lands second.
-- **Hardening `fail` against the same index conflict.** It is real — `fail` returns a row to `pending` with its `dedupe_key` intact, so it can raise `23505` and strand the row plus the rest of its batch — but it is not a one-line fix and it is not this finding. Clearing the key there would break the debounce that `enqueueMail` depends on (`packages/mail/src/queue.ts:19-31`: "resend verification" pressed three times must stay one email while the job is retrying), and collapsing on a read-then-write would leave the same narrow race the reaper closes with a null. Meanwhile the reaper is a complete net for it: the violation can only occur when a `pending` duplicate exists, which is exactly the case the reaper collapses, and the abandoned batch-mates are exactly the case it requeues. Worth its own finding and its own argument.
+- **Hardening `fail` against the same index conflict.** *(Moot since plan 024: the widened index makes the conflict unconstructible — `fail` returning a row to `pending` with its key intact is now the correct behaviour, and `jobs.dedupe.test.ts` pins it. What follows is history from `39fd32c`.)* It is real — `fail` returns a row to `pending` with its `dedupe_key` intact, so it can raise `23505` and strand the row plus the rest of its batch — but it is not a one-line fix and it is not this finding. Clearing the key there would break the debounce that `enqueueMail` depends on (`packages/mail/src/queue.ts:19-31`: "resend verification" pressed three times must stay one email while the job is retrying), and collapsing on a read-then-write would leave the same narrow race the reaper closes with a null. Meanwhile the reaper is a complete net for it: the violation can only occur when a `pending` duplicate exists, which is exactly the case the reaper collapses, and the abandoned batch-mates are exactly the case it requeues. Worth its own finding and its own argument.
 - **The `job` table wipe in `jobs.test.ts:59-61` and `jobs.ownership.test.ts:39-41`** — TEST-01. The new suite is written so it needs no wipe and adds nothing to that finding.
 - **Doc counts.** `bun run check` will report one more suite than `README.md` and `AGENTS.md` currently imply. Plan 021 owns those numbers; do not edit either file here.
