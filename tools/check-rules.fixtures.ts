@@ -21,10 +21,19 @@ export interface Expectation {
 	why: string;
 }
 
-// Deliberately 201 statements with no comments and no blank lines: the rule
-// counts code, so a fixture padded with comments would pass and the check would
-// report a working rule as dead.
+// Deliberately 201 statements. The rule counts every line that is not blank,
+// comments included, so all that matters is that there is one line too many.
 const LONG_FILE = `${Array.from({ length: 201 }, (_, index) => `export const value${index} = ${index};`).join("\n")}\n`;
+
+// Three bodies that recur, because Biome resolves noRestrictedImports
+// last-override-wins: each block carries its own copy of the patterns, and each
+// copy needs its own fixture. Written once so the copies cannot drift apart.
+const DEEP =
+	'import { projectStore } from "@/modules/projects/projects.repository";\nexport const store = projectStore;\n';
+const ESCAPE =
+	'import { projectStore } from "../../projects/projects.repository";\nexport const store = projectStore;\n';
+const QUEUE =
+	'import { enqueue } from "@/lib/jobs.repository";\nexport const add = enqueue;\n';
 
 export const EXPECTATIONS: Expectation[] = [
 	{
@@ -63,49 +72,57 @@ export const EXPECTATIONS: Expectation[] = [
 	{
 		path: `${MODULE_DIR}/deep.handlers.ts`,
 		rule: "lint/style/noRestrictedImports",
-		source:
-			'import { projectStore } from "@/modules/projects/projects.repository";\nexport const store = projectStore;\n',
+		source: DEEP,
 		why: "one module reaches into another module's internals",
 	},
 	{
 		path: `${MODULE_DIR}/internal/escape.handlers.ts`,
 		rule: "lint/style/noRestrictedImports",
-		source:
-			'import { projectStore } from "../../projects/projects.repository";\nexport const store = projectStore;\n',
+		source: ESCAPE,
 		why: "a relative import escapes its module directory",
 	},
 	{
 		path: `${MODULE_DIR}/queue.service.ts`,
 		rule: "lint/style/noRestrictedImports",
-		source:
-			'import { enqueue } from "@/lib/jobs.repository";\nexport const add = enqueue;\n',
+		source: QUEUE,
 		why: "a service reaches past the queue's public face",
 	},
 	{
 		path: `${MODULE_DIR}/queue.handlers.ts`,
 		rule: "lint/style/noRestrictedImports",
-		source:
-			'import { enqueue } from "@/lib/jobs.repository";\nexport const add = enqueue;\n',
+		source: QUEUE,
 		why: "an HTTP layer reaches past the queue's public face",
 	},
 	{
-		// The nine noRestrictedImports fixtures above all end in .service.ts or
-		// .handlers.ts, so every one of them lands in a different override block.
-		// These two are the only files that reach the block scoped to everything
-		// in a module that is NOT a service, an HTTP layer or a test — the block
-		// that polices *.repository.ts, *.schema.ts and *.fixtures.ts, which is
-		// to say the files that touch the database and the wire format.
+		// The service block repeats the module-privacy patterns rather than
+		// inheriting them, and these two fixtures are the only ones that reach
+		// its copies: without them both groups can be deleted and every check
+		// stays green.
+		path: `${MODULE_DIR}/reach.service.ts`,
+		rule: "lint/style/noRestrictedImports",
+		source: DEEP,
+		why: "a service reaches into another module's internals",
+	},
+	{
+		path: `${MODULE_DIR}/escape.service.ts`,
+		rule: "lint/style/noRestrictedImports",
+		source: ESCAPE,
+		why: "a service escapes its module directory relatively",
+	},
+	{
+		// Every noRestrictedImports fixture above ends in .service.ts or
+		// .handlers.ts, so none of them reaches the block scoped to everything in
+		// a module that is NOT a service, an HTTP layer or a test — the block that
+		// polices *.repository.ts, *.schema.ts and *.fixtures.ts.
 		path: `${MODULE_DIR}/rulecheck.repository.ts`,
 		rule: "lint/style/noRestrictedImports",
-		source:
-			'import { projectStore } from "@/modules/projects/projects.repository";\nexport const store = projectStore;\n',
+		source: DEEP,
 		why: "a repository reaches into another module's internals",
 	},
 	{
 		path: `${MODULE_DIR}/internal/escape.schema.ts`,
 		rule: "lint/style/noRestrictedImports",
-		source:
-			'import { projectStore } from "../../projects/projects.repository";\nexport const store = projectStore;\n',
+		source: ESCAPE,
 		why: "a schema escapes its module directory relatively",
 	},
 	{
@@ -113,8 +130,7 @@ export const EXPECTATIONS: Expectation[] = [
 		// src/modules/, so shared code needs its own block or it is unpoliced.
 		path: `${LIB_DIR}/reach.ts`,
 		rule: "lint/style/noRestrictedImports",
-		source:
-			'import { projectStore } from "@/modules/projects/projects.repository";\nexport const store = projectStore;\n',
+		source: DEEP,
 		why: "shared code reaches into a module's internals",
 	},
 	{
@@ -183,18 +199,5 @@ export const EXPECTATIONS: Expectation[] = [
 		source:
 			'import { useEffect, useState } from "react";\nexport function useRulecheck() {\n\tconst [count, setCount] = useState(0);\n\tuseEffect(() => {\n\t\tsetCount(count + 1);\n\t}, []);\n\treturn count;\n}\n',
 		why: "a hook omits a value its effect reads",
-	},
-];
-
-/** Files a fixture needs to exist but which assert nothing themselves. */
-export const SUPPORT: { path: string; source: string }[] = [
-	{
-		path: `${MODULE_DIR}/cycle-b.service.ts`,
-		source:
-			'import { a } from "./cycle-a.service";\nexport const b = () => a;\n',
-	},
-	{
-		path: `${MODULE_DIR}/hidden.service.ts`,
-		source: "/** @private */\nexport const secret = 1;\n",
 	},
 ];

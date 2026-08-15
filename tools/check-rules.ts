@@ -22,11 +22,27 @@ import {
 	HELPER_DIR,
 	LIB_DIR,
 	MODULE_DIR,
-	SUPPORT,
 	WEB_DIR,
 } from "./check-rules.fixtures";
 
 const DIRS = [LIB_DIR, MODULE_DIR, HELPER_DIR, WEB_DIR];
+
+/**
+ * The second halves of two fixtures: files that have to exist for a cycle and a
+ * private export to be reachable, but that assert nothing themselves. They live
+ * with the run rather than with the expectations because nothing checks them.
+ */
+const SUPPORT: { path: string; source: string }[] = [
+	{
+		path: `${MODULE_DIR}/cycle-b.service.ts`,
+		source:
+			'import { a } from "./cycle-a.service";\nexport const b = () => a;\n',
+	},
+	{
+		path: `${MODULE_DIR}/hidden.service.ts`,
+		source: "/** @private */\nexport const secret = 1;\n",
+	},
+];
 
 async function write(path: string, source: string) {
 	await mkdir(path.slice(0, path.lastIndexOf("/")), { recursive: true });
@@ -119,5 +135,5 @@ if (failures > 0) {
 }
 
 console.log(
-	`\ncheck-rules: ${EXPECTATIONS.length} architecture rules verified against deliberate violations.`
+	`\ncheck-rules: ${new Set(EXPECTATIONS.map((e) => e.rule)).size} rules verified against ${EXPECTATIONS.length} deliberate fixtures.`
 );
