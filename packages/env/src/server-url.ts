@@ -23,11 +23,16 @@ import { z } from "zod";
  * root-relative and is not — the browser resolves it to another origin. Schemes
  * other than http(s) are rejected for the same reason a fetch base has no
  * business being `javascript:` or `file:`.
+ *
+ * A relative value must carry at least one path segment. `serverOrigin` strips a
+ * trailing slash, so a bare `/` would reduce to the empty string and every URL
+ * built on it would throw at module import — the crash this schema exists to
+ * prevent. `/` also has no meaning as an API base: it claims the whole origin.
  */
 export const serverUrlSchema = z.string().refine(
 	(value) => {
 		if (value.startsWith("/")) {
-			return !value.startsWith("//");
+			return value.length > 1 && !value.startsWith("//");
 		}
 
 		try {

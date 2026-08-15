@@ -17,12 +17,18 @@ describe("VITE_SERVER_URL", () => {
 		}
 	);
 
-	it.each(["/api", "/"])(
+	it.each(["/api", "/api/v1"])(
 		"accepts the root-relative path %p that the Docker and Vercel wiring uses",
 		(value) => {
 			expect(serverUrlSchema.safeParse(value).success).toBe(true);
 		}
 	);
+
+	// `serverOrigin` strips a trailing slash, so `/` reduces to the empty string
+	// and `new URL("/api/auth", "")` throws at module import.
+	it("rejects a bare slash, which the resolver reduces to nothing", () => {
+		expect(serverUrlSchema.safeParse("/").success).toBe(false);
+	});
 
 	// A protocol-relative value looks root-relative and is not: the browser would
 	// resolve `//evil.example` to another origin entirely.

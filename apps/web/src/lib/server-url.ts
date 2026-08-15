@@ -6,6 +6,10 @@
  * Extracted so `auth-client.ts` and `api.ts` cannot drift into disagreeing about
  * where the server is.
  *
+ * The relative form always carries at least one path segment: `serverUrlSchema`
+ * in `@keel/env` rejects a bare `/`, so stripping a trailing slash below cannot
+ * empty the value and leave callers building URLs against no base at all.
+ *
  * Throws when a relative value has nothing to resolve against, rather than falling
  * back to `http://localhost:3000`. That fallback was reachable in exactly one
  * situation — a build with no window and no Vercel URL — and in that situation it
