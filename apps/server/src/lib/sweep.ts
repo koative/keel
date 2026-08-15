@@ -53,15 +53,18 @@ export interface BatchedDelete {
  * update skip locked)` — is not a bound: the planner may re-execute that
  * subquery once per candidate row, and `skip locked` then skips the statement's
  * own earlier locks, so the limit is per-rescan rather than per-statement and a
- * batch can delete the whole eligible set. A standalone `select … limit n for
- * update skip locked` has no join to re-execute it, so its limit holds, and the
- * delete is then bounded by the explicit id list.
+ * batch can delete the whole eligible set. A standalone `select … limit n` has
+ * no join to re-execute it, so its limit holds, and the delete is then bounded
+ * by the explicit id list.
  *
- * `skip locked` still matches `claim` in jobs.repository: two overlapping cron
- * runs select disjoint batches instead of one queueing behind the other's
- * locks. If a concurrent run deletes a selected row between the two statements,
- * this run's delete removes one fewer — the count reflects what this run
- * actually deleted, and the rows are not lost.
+ * Nothing is locked between the two statements: the select's implicit
+ * transaction commits at statement end, so two overlapping runs select the same
+ * ids and the later delete simply removes fewer rows than it selected. The
+ * count reflects what this run actually deleted and no row is lost. Taking
+ * `for update skip locked` on the select would not change that — the lock is
+ * gone before the delete is sent — and it would cost an `xmax` write on every
+ * tuple the sweep only means to read, while making the short-batch check below
+ * unsound: a row skipped for being locked looks like an exhausted eligible set.
  *
  * The count comes from the driver's `rowCount`, which is the number Postgres
  * already puts in the command tag. The `.returning({ id })` this replaced made
@@ -89,8 +92,7 @@ export async function deleteInBatches({
 			.select({ id: primaryKey })
 			.from(table)
 			.where(where)
-			.limit(batchSize)
-			.for("update", { skipLocked: true });
+			.limit(batchSize);
 
 		// An empty select is the eligible set exhausted, so this saves the round
 		// trip a delete that returns zero would cost.
