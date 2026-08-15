@@ -170,14 +170,39 @@ export async function get${singular}(id: string, ctx: ${singular}Context): Promi
 // is ever needed. Select limit + 1: the extra probe row is how the service
 // learns another page exists.
 
+// The row shape the implemented repository returns, matching the suite's Row.
+// Annotated structurally rather than left as \`never\`: the generated suite reads
+// fields off these results, so an untyped stub is a TS2339 in every consumer.
+// The annotation dies with the throw below.
+export interface ${singular}Row {
+	createdAt: Date;
+	createdBy: string | null;
+	id: string;
+	organizationId: string;
+}
+
 export function listByOrganization(
 	_organizationId: string,
 	_page: { cursor: { createdAt: Date; id: string } | null; limit: number }
-): Promise<never[]> {
+): Promise<${singular}Row[]> {
 	${UNIMPLEMENTED}
 }
 
-export function findById(_id: string, _organizationId: string): Promise<undefined> {
+export function findById(
+	_id: string,
+	_organizationId: string
+): Promise<${singular}Row | undefined> {
+	${UNIMPLEMENTED}
+}
+
+// A throwing stub like the reads, so the generated suite can import it
+// statically instead of inventing it with a type cast. The moment step 3 of the
+// generator's next-steps replaces these bodies, the suite's \`insert\` calls go
+// live against the real table.
+export function insert(_row: {
+	createdBy: string | null;
+	organizationId: string;
+}): Promise<${singular}Row> {
 	${UNIMPLEMENTED}
 }
 
@@ -186,7 +211,10 @@ export const ${camel}Store = { findById, listByOrganization };
 `,
 
 	[`${dir}/${name}.repository.test.ts`]: `import { describe, expect, it } from "bun:test";
+import { db } from "@keel/db";
+import { sql } from "drizzle-orm";
 import { seedOrganization, skipNotice, testDbReady } from "../../../test-db";
+import { findById, insert, listByOrganization } from "./${name}.repository";
 
 const ready = await testDbReady();
 if (!ready) {
@@ -202,28 +230,22 @@ interface Row {
 }
 
 /**
- * The scaffold's repository exports only findById and listByOrganization and
- * throws on every call, and the module's table does not exist yet, so nothing
- * below can run against it. \`insert\` is picked up dynamically because a static
- * import of a member the scaffold does not export would fail to load the file;
- * the probe turns the suite on the moment the repository is implemented (step 3
- * of the generator's next-steps) and keeps it honest until then.
+ * The module's table does not exist until step 1 of the generator's
+ * next-steps, and the scaffold repository throws until step 3 replaces its
+ * bodies. The probe asks the database whether the table exists — nothing else —
+ * so a wrong column in the seek, an unmigrated table or a dropped connection
+ * fails the suite loudly instead of reading as "not implemented yet" and
+ * skipping. \`to_regclass\` accepts a name that does not exist and returns null,
+ * so this cannot throw.
  */
-type Repository = typeof import("./${name}.repository") & {
-	insert: (row: {
-		createdBy: string | null;
-		organizationId: string;
-	}) => Promise<Row>;
-};
-
-const repository = (await import("./${name}.repository")) as Repository;
-
+// Probe only when the test database answered, so an unreachable DB leaves the
+// suite skipped (testDbReady's job) instead of crashing it.
 let repositoryWorks = false;
-try {
-	await repository.findById(crypto.randomUUID(), crypto.randomUUID());
-	repositoryWorks = true;
-} catch {
-	// scaffold: ${name}.repository.ts throws until it is implemented.
+if (ready) {
+	const { rows: probeRows } = await db.execute(
+		sql\`select to_regclass('${singular.toLowerCase()}') is not null as ready\`
+	);
+	repositoryWorks = probeRows[0]?.ready === true;
 }
 
 /**
@@ -253,13 +275,13 @@ describe.skipIf(!ready || !repositoryWorks)("${name} repository", () => {
 			seedOrganization(),
 			seedOrganization(),
 		]);
-		const created = await repository.insert({
+		const created = await insert({
 			createdBy: null,
 			organizationId,
 		});
 
 		expect(
-			await repository.findById(created.id, otherOrganization)
+			await findById(created.id, otherOrganization)
 		).toBeUndefined();
 	});
 
@@ -269,15 +291,15 @@ describe.skipIf(!ready || !repositoryWorks)("${name} repository", () => {
 			seedOrganization(),
 		]);
 		const created = await Promise.all([
-			repository.insert({ createdBy: null, organizationId: mine }),
-			repository.insert({ createdBy: null, organizationId: mine }),
-			repository.insert({ createdBy: null, organizationId: theirs }),
+			insert({ createdBy: null, organizationId: mine }),
+			insert({ createdBy: null, organizationId: mine }),
+			insert({ createdBy: null, organizationId: theirs }),
 		]);
 		const expected = newestFirst(
 			created.filter((row) => row.organizationId === mine)
 		);
 
-		const rows = await repository.listByOrganization(mine, {
+		const rows = await listByOrganization(mine, {
 			cursor: null,
 			limit: 25,
 		});
@@ -291,11 +313,11 @@ describe.skipIf(!ready || !repositoryWorks)("${name} repository", () => {
 		const organizationId = await seedOrganization();
 		await Promise.all(
 			Array.from({ length: 3 }, () =>
-				repository.insert({ createdBy: null, organizationId })
+				insert({ createdBy: null, organizationId })
 			)
 		);
 
-		const rows = await repository.listByOrganization(organizationId, {
+		const rows = await listByOrganization(organizationId, {
 			cursor: null,
 			limit: 2,
 		});
@@ -313,7 +335,7 @@ describe.skipIf(!ready || !repositoryWorks)("${name} repository", () => {
 		const organizationId = await seedOrganization();
 		const created = await Promise.all(
 			Array.from({ length: 3 }, () =>
-				repository.insert({ createdBy: null, organizationId })
+				insert({ createdBy: null, organizationId })
 			)
 		);
 		const expected = newestFirst(created);
@@ -322,7 +344,7 @@ describe.skipIf(!ready || !repositoryWorks)("${name} repository", () => {
 			cursor: { createdAt: Date; id: string } | null,
 			seen: string[]
 		): Promise<string[]> => {
-			const rows = await repository.listByOrganization(organizationId, {
+			const rows = await listByOrganization(organizationId, {
 				cursor,
 				limit: 2,
 			});
@@ -591,6 +613,8 @@ export const internal${pascal}Routes = new Hono<AppEnv>()
 `,
 
 	[`${dir}/internal/${name}.routes.test.ts`]: `import { beforeAll, describe, expect, it } from "bun:test";
+import { db } from "@keel/db";
+import { sql } from "drizzle-orm";
 import { app } from "@/app";
 import { skipNotice, testDbReady } from "../../../../test-db";
 import {
@@ -599,7 +623,6 @@ import {
 	signUp,
 	signUpWithoutOrganization,
 } from "../../../../test-http";
-import { findById } from "../${name}.repository";
 
 const ready = await testDbReady();
 if (!ready) {
@@ -608,16 +631,18 @@ if (!ready) {
 
 const api = createClient();
 
-// The scaffold's repository throws on every call, so a request that reaches it
-// would 500 instead of 404 — the exact failure these tests exist to catch once
-// the module is implemented. Probe once; the repository-dependent case below
-// goes live on its own the moment step 3 of the generator's next-steps is done.
+// The module's table does not exist until step 1 of the generator's
+// next-steps, and the scaffold repository throws until step 3. The probe asks
+// only whether the table exists, so a wrong column in the seek or an unmigrated
+// table fails these tests loudly instead of reading as "not implemented yet".
+// Probe only when the test database answered, so an unreachable DB leaves the
+// suite skipped (testDbReady's job) instead of crashing it.
 let repositoryWorks = false;
-try {
-	await findById(crypto.randomUUID(), crypto.randomUUID());
-	repositoryWorks = true;
-} catch {
-	// scaffold: ${name}.repository.ts throws until it is implemented.
+if (ready) {
+	const { rows: probeRows } = await db.execute(
+		sql\`select to_regclass('${singular.toLowerCase()}') is not null as ready\`
+	);
+	repositoryWorks = probeRows[0]?.ready === true;
 }
 
 /**
@@ -682,8 +707,10 @@ describe.skipIf(!ready)("internal ${name} routes", () => {
 
 	// 404 and not 403: a 403 would confirm the id exists, which is enough to walk
 	// another organization's ids one guess at a time. Absent and another's arrive
-	// as the same undefined, so this one case pins the distinction the service
-	// comment draws.
+	// as the same undefined, so this case pins the route's answer for an id that
+	// does not exist; the cross-tenant distinction is proven in
+	// ${name}.repository.test.ts, where a row from another organization can be
+	// staged and asserted to read as absent.
 	it.skipIf(!repositoryWorks)(
 		"reports an unknown id as a 404, never a 403",
 		async () => {
@@ -940,7 +967,12 @@ const appSource = await Bun.file(APP).text();
 // Anchored on statements the formatter cannot reshape, not on formatted text: the
 // import list gets wrapped once it grows past the line width, and an anchor that
 // depends on that wrapping fails the second time this script runs.
-const CHAIN_ANCHOR = "const routes = app";
+//
+// The /v1 mount is the last line of the app chain (deliberate — the public half
+// is the frozen contract, mounted at the end so new internal surfaces slot in
+// before it). Anchoring on `const routes = app` broke when the declaration-bundle
+// split (plan 029) turned the chain head into a bare `app`.
+const CHAIN_ANCHOR = '.route("/v1/projects", publicProjectRoutesV1);';
 
 // The head of the existing import block. `organizeImports` sorts a contiguous
 // run of imports but never moves one across an intervening statement, so an

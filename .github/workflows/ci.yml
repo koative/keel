@@ -65,7 +65,7 @@ jobs:
       - name: Fail if any test was skipped
         run: |
           if grep -qE '(^|:)[[:space:]]*[1-9][0-9]* skip|\(skip\)' /tmp/check.log; then
-            echo "::error::integration tests were skipped — the test database was not reachable"
+            echo "::error::integration tests were skipped — the test database was not reachable, or a generated module's repository is still throwing"
             exit 1
           fi
         env:
