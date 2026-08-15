@@ -19,18 +19,23 @@ type DownloadContext = Context<
 >;
 
 /**
- * `resolveStorage` refuses a call rather than returning something half-wired:
- * on a deployment with no bucket it throws naming the `STORAGE_*` keys that are
- * unset. That refusal is surfaced as a 503 envelope carrying the same text an
- * operator would read in the logs — the request needs a dependency this
- * deployment never named, and nothing in our code is broken, so a 500 with a
- * generic body would hide exactly the message that fixes it.
+ * `resolveStorage` refuses a call rather than returning something half-wired: on
+ * a deployment with no bucket it throws naming the `STORAGE_*` keys that are
+ * unset. That report belongs in the request's wide event, where the operator who
+ * can act on it reads it, and nowhere in the response: this 503 is readable by
+ * any signed-in member of any organization, and the list of keys a deployment
+ * has left unset is the same class of detail `failure` masks a 500 for. The
+ * caller is told the one thing it can act on — a dependency this deployment
+ * never named, so retry rather than escalate.
  */
-function storageOf(): Storage {
+function storageOf(c: Context<AppEnv>): Storage {
 	try {
 		return resolveStorage();
 	} catch (error) {
-		throw serviceUnavailable((error as Error).message);
+		c.get("log").error(error as Error);
+		throw serviceUnavailable(
+			"Object storage is not configured for this deployment"
+		);
 	}
 }
 
@@ -52,7 +57,7 @@ function tenantKey(c: Context<AppEnv>, key: string): string {
 
 export function uploadUrl(c: UploadContext) {
 	const { contentType, expiresInSeconds, key } = c.req.valid("query");
-	const url = storageOf().createUploadUrl(tenantKey(c, key), {
+	const url = storageOf(c).createUploadUrl(tenantKey(c, key), {
 		contentType,
 		expiresInSeconds,
 	});
@@ -62,7 +67,7 @@ export function uploadUrl(c: UploadContext) {
 
 export function downloadUrl(c: DownloadContext) {
 	const { expiresInSeconds, key } = c.req.valid("query");
-	const url = storageOf().createDownloadUrl(tenantKey(c, key), {
+	const url = storageOf(c).createDownloadUrl(tenantKey(c, key), {
 		expiresInSeconds,
 	});
 

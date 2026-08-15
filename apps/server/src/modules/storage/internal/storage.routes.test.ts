@@ -1,5 +1,14 @@
-import { beforeAll, describe, expect, it, type Mock, mock } from "bun:test";
+import {
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+	type Mock,
+	mock,
+} from "bun:test";
 import type { Storage } from "@keel/storage/client";
+import { type DrainContext, initLogger } from "evlog";
 import { skipNotice, testDbReady } from "../../../../test-db";
 import type { Envelope, ErrorEnvelope } from "../../../../test-http";
 import type { StorageEnv } from "../../../lib/storage";
@@ -162,21 +171,39 @@ describe.skipIf(!ready)("internal storage routes", () => {
 		);
 	});
 
-	it("names the missing STORAGE_* keys when storage is not configured", async () => {
-		// No implementationOnce: the mock's default delegates to the real
-		// resolveStorage, whose guard throws the message this envelope carries.
-		const response = await api.request(
-			"/api/storage/upload-url?key=avatars/me.png&expiresInSeconds=60"
-		);
-		const body = await api.body<ErrorEnvelope>(response);
+	describe("unconfigured deployment", () => {
+		afterEach(() => {
+			initLogger({ drain: () => Promise.resolve(), silent: true });
+		});
 
-		expect(response.status).toBe(503);
-		expect(body.error.code).toBe("SERVICE_UNAVAILABLE");
-		// The guard's report travels in `why`, per the shared envelope: the
-		// message stays the fixed 503 line every caller can branch on.
-		expect(body.error.why).toContain("STORAGE_PROVIDER");
-		expect(body.error.why).toContain("STORAGE_BUCKET");
-		expect(body.error.why).toContain("STORAGE_ACCESS_KEY_ID");
-		expect(body.error.why).toContain("STORAGE_SECRET_ACCESS_KEY");
+		it("logs the unset STORAGE_* keys and names none of them to the caller", async () => {
+			// No implementationOnce: the mock's default delegates to the real
+			// resolveStorage, whose guard refuses an empty environment.
+			const events: DrainContext[] = [];
+			initLogger({
+				drain: (context) => {
+					events.push(context);
+				},
+				silent: true,
+			});
+
+			const response = await api.request(
+				"/api/storage/upload-url?key=avatars/me.png&expiresInSeconds=60"
+			);
+			const body = await api.body<ErrorEnvelope>(response);
+
+			expect(response.status).toBe(503);
+			expect(body.error.code).toBe("SERVICE_UNAVAILABLE");
+			// Not one deployment key: this envelope is readable by any signed-in
+			// member of any organization.
+			expect(JSON.stringify(body.error)).not.toContain("STORAGE_");
+
+			// The operator's copy, on the request's own wide event.
+			const logged = JSON.stringify(events.at(-1)?.event.error ?? {});
+			expect(logged).toContain("STORAGE_PROVIDER");
+			expect(logged).toContain("STORAGE_BUCKET");
+			expect(logged).toContain("STORAGE_ACCESS_KEY_ID");
+			expect(logged).toContain("STORAGE_SECRET_ACCESS_KEY");
+		});
 	});
 });
