@@ -72,6 +72,24 @@ Four env files, and `.env.test` is the only committed one: root `.env` for compo
 interpolation, `apps/server/.env`, `apps/web/.env`, `.env.test` for both bun:test
 preloads.
 
+## Migrations
+
+A migration is append-only history: change the schema, run `bun run db:generate`, and
+let the new file say what changed. `tools/check-migrations.ts` replays the committed
+SQL against the Drizzle tables and fails on a column the migrations declare that the
+schema does not, on a nullability disagreement, and on a `.sql` file the journal does
+not list — but it cannot see a hand-edited DEFAULT, type, index or constraint, so it
+is a floor and not a proof.
+
+Editing a committed migration is the exception, and `0001` is the one that took it:
+a database created before `project.organization_id` existed had no upgrade path, and
+a new migration cannot retroactively fix the file that stranded it. It was safe for a
+reason worth knowing before reaching for it again — drizzle gates re-application on
+the stored `created_at` against the journal's `when`, and never compares the sha256 it
+also stores, so a database that already applied the old file skips it and the stale
+hash is read by nothing. That makes the edit invisible to deployed databases, which is
+exactly why nothing but a broken upgrade path justifies it.
+
 ## Rules
 
 Everything mechanical is enforced by `bun run check`, not by this file — layer
