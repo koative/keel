@@ -19,19 +19,16 @@ import { readFile, rm } from "node:fs/promises";
  * committed SQL does — 0001's snapshot declares `created_by` nullable (as the
  * schema always did) while the generated rename would have kept `owner_id`'s NOT
  * NULL, and the hand-added `DROP NOT NULL` is what makes the replay agree. So the
- * check also replays what the committed statements declare about column
- * nullability and compares it with the schema's, which is the only way a
- * hand-edit that drizzle-kit would not re-emit becomes visible.
+ * check also replays which columns the committed statements declare, and with
+ * what nullability, and compares that with the schema. Those two facts are the
+ * ones a hand-edit can drift without drizzle-kit re-emitting anything; the pass
+ * below says what it does not cover.
  *
- * The reader is line-oriented because every committed migration is drizzle-kit
- * formatted: one column per line inside `CREATE TABLE`, one ALTER per line. It
- * reads declarations — never asserts on syntax — and anything it does not
- * recognize is left alone.
+ * How each side is read — the line-oriented replay of the committed statements
+ * and the offline read of the schema index — lives in `check-migrations.model`.
  */
 import { $, Glob } from "bun";
-
-// biome-ignore lint/performance/noNamespaceImport: the pass must cover every table the schema gains, and a second explicit list is exactly what drifts — the schema index is the single source of truth the probe itself reads.
-import * as schemaModule from "../packages/db/src/schema";
+import { declaredModel, schemaModel } from "./check-migrations.model";
 
 const MIGRATIONS = "packages/db/src/migrations";
 
@@ -43,119 +40,12 @@ const sqlFiles = async () => {
 	return found.toSorted((a, b) => a.localeCompare(b));
 };
 
-const Columns = Symbol.for("drizzle:Columns");
-const TableName = Symbol.for("drizzle:OriginalName");
-
-interface ColumnDecl {
-	notNull: boolean;
-}
-type DeclaredModel = Map<string, Map<string, ColumnDecl>>;
-
-const modelTable = (model: DeclaredModel, name: string) => {
-	const table = model.get(name) ?? new Map<string, ColumnDecl>();
-	model.set(name, table);
-	return table;
-};
-
-const CREATE_TABLE = /^CREATE TABLE "([^"]+)" \($/;
-const COLUMN_DEF = /^"([^"]+)" (.*)$/;
-const ALTER_COLUMN_NOT_NULL =
-	/^ALTER TABLE "([^"]+)" ALTER COLUMN "([^"]+)" (SET|DROP) NOT NULL/;
-const ADD_COLUMN = /^ALTER TABLE "([^"]+)" ADD COLUMN "([^"]+)" (.*)/;
-const RENAME_COLUMN =
-	/^ALTER TABLE "([^"]+)" RENAME COLUMN "([^"]+)" TO "([^"]+)"/;
-const STRIP_QUOTED = /['"][^'"]*['"]/g;
-const NOT_NULL = /\bNOT NULL\b/;
-const PRIMARY_KEY = /\bPRIMARY KEY\b/;
-
-/** A column definition is NOT NULL when it says so, or when it is a primary key. */
-const declaresNotNull = (text: string): boolean => {
-	const bare = text.replace(STRIP_QUOTED, " ");
-	return NOT_NULL.test(bare) || PRIMARY_KEY.test(bare);
-};
-
-/** Applies an ALTER statement's effect on the declared model. */
-const applyAlter = (model: DeclaredModel, line: string): void => {
-	const alterMatch = line.match(ALTER_COLUMN_NOT_NULL);
-	if (alterMatch) {
-		const [, tableName, columnName, mode] = alterMatch;
-		modelTable(model, tableName).set(columnName, { notNull: mode === "SET" });
-		return;
-	}
-	const addMatch = line.match(ADD_COLUMN);
-	if (addMatch) {
-		const [, tableName, columnName, def] = addMatch;
-		const table = modelTable(model, tableName);
-		table.set(columnName, { notNull: declaresNotNull(def) });
-		return;
-	}
-	// A renamed column keeps its constraints, so the declaration carries over.
-	const renameMatch = line.match(RENAME_COLUMN);
-	if (renameMatch) {
-		const [, tableName, from, to] = renameMatch;
-		const table = modelTable(model, tableName);
-		const carried = table.get(from);
-		if (carried) {
-			table.set(to, carried).delete(from);
-		}
-	}
-};
-
-const migrationLines = (sql: string): string[] =>
-	sql.split("--> statement-breakpoint").flatMap((chunk) => chunk.split("\n"));
-
-/** Replays the committed statements' nullability declarations, in order. */
-const declaredModel = async (files: string[]): Promise<DeclaredModel> => {
-	const model: DeclaredModel = new Map();
-	const sqls = await Promise.all(
-		files.map((file) => readFile(`${MIGRATIONS}/${file}`, "utf8"))
-	);
-	for (const sql of sqls) {
-		let tableName = "";
-		for (const rawLine of migrationLines(sql)) {
-			const line = rawLine.trim();
-			const create = line.match(CREATE_TABLE);
-			if (create) {
-				const [, name] = create;
-				tableName = name;
-				continue;
-			}
-			if (tableName) {
-				if (line.startsWith(")")) {
-					tableName = "";
-					continue;
-				}
-				const column = line.match(COLUMN_DEF);
-				if (column) {
-					const [, columnName, def] = column;
-					const table = modelTable(model, tableName);
-					table.set(columnName, { notNull: declaresNotNull(def) });
-				}
-				continue;
-			}
-			applyAlter(model, line);
-		}
-	}
-	return model;
-};
-
-const schemaModel = (): DeclaredModel => {
-	const model: DeclaredModel = new Map();
-	for (const exported of Object.values(schemaModule)) {
-		const metadata = exported as Record<symbol, unknown>;
-		const columns = metadata[Columns] as
-			| Record<string, ColumnDecl & { name: string }>
-			| undefined;
-		if (!columns) {
-			continue;
-		}
-		const declared = new Map<string, ColumnDecl>();
-		for (const column of Object.values(columns)) {
-			declared.set(column.name, { notNull: column.notNull });
-		}
-		model.set(metadata[TableName] as string, declared);
-	}
-	return model;
+/** The migration tags drizzle will actually apply, in journal order. */
+const journalTags = async (): Promise<string[]> => {
+	const journal = JSON.parse(
+		await readFile(`${MIGRATIONS}/meta/_journal.json`, "utf8")
+	) as { entries: { tag: string }[] };
+	return journal.entries.map((entry) => entry.tag);
 };
 
 const before = await sqlFiles();
@@ -164,10 +54,36 @@ if (before.length === 0) {
 	process.exit(1);
 }
 
+// drizzle applies only the tags meta/_journal.json lists, so a committed .sql
+// with no entry never runs in production — and the replay below would then
+// assert the schema agrees with statements no deployed database has executed.
+const tags = await journalTags();
+const committed = before.map((file) => file.slice(0, -".sql".length));
+const unlisted = committed
+	.filter((name) => !tags.includes(name))
+	.map((name) => `${name}.sql is committed, and no journal entry applies it`);
+const unwritten = tags
+	.filter((tag) => !committed.includes(tag))
+	.map((tag) => `the journal lists ${tag}, and no ${tag}.sql exists`);
+if (unlisted.length > 0 || unwritten.length > 0) {
+	console.error(
+		`The migration journal and the committed SQL disagree:\n  ${[...unlisted, ...unwritten].join("\n  ")}\n\nRun: bun run db:generate\n`
+	);
+	process.exit(1);
+}
+
 // Runs before the probe: it is cheaper and names the column, while the probe can
-// only name the migration file it would have created. Columns the migrations
-// declare but the schema lacks, and vice versa, are left to the probe.
-const declared = await declaredModel(before);
+// only name the migration file it would have created. A column the schema
+// declares but the migrations lack belongs to the probe, which re-emits it. The
+// reverse belongs here: the probe diffs the schema against the latest meta
+// snapshot and never opens a .sql file, so a column hand-added to a committed
+// migration is invisible to it. Those two facts — that the schema declares the
+// column at all, and that both sides agree on its nullability — are this pass's
+// whole scope. A hand-edited DEFAULT or type, a UNIQUE dropped from an index and
+// a deleted constraint are seen by neither pass.
+const declared = await declaredModel(
+	before.map((file) => `${MIGRATIONS}/${file}`)
+);
 const schemaSide = schemaModel();
 const drift: string[] = [];
 for (const [tableName, table] of declared) {
@@ -177,7 +93,11 @@ for (const [tableName, table] of declared) {
 	}
 	for (const [columnName, column] of table) {
 		const schemaColumn = schemaTable.get(columnName);
-		if (schemaColumn && schemaColumn.notNull !== column.notNull) {
+		if (!schemaColumn) {
+			drift.push(
+				`"${tableName}"."${columnName}": the migrations declare this column, the schema does not`
+			);
+		} else if (schemaColumn.notNull !== column.notNull) {
 			drift.push(
 				`"${tableName}"."${columnName}": migrations declare ${column.notNull ? "NOT NULL" : "nullable"}, schema declares ${schemaColumn.notNull ? "NOT NULL" : "nullable"}`
 			);
@@ -186,7 +106,7 @@ for (const [tableName, table] of declared) {
 }
 if (drift.length > 0) {
 	console.error(
-		`The committed migrations and the schema disagree on column nullability:\n  ${drift.join("\n  ")}\n\nThe generate probe cannot see this: it diffs the schema against the latest snapshot, and a snapshot records what the schema declared, not what the migration SQL does. Reconcile the column, then run: bun run db:generate\n`
+		`The committed migrations and the schema disagree:\n  ${drift.join("\n  ")}\n\nThe generate probe cannot see this: it diffs the schema against the latest snapshot, and a snapshot records what the schema declared, not what the migration SQL does. Reconcile the column, then run: bun run db:generate\n`
 	);
 	process.exit(1);
 }
