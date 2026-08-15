@@ -69,8 +69,6 @@ export const projectPageV1Schema = z.object({
 	limit: z.coerce.number().int().min(1).max(100).default(25),
 });
 
-export type ProjectPageV1Query = z.output<typeof projectPageV1Schema>;
-
 /** Narrower than the internal input on purpose: no description, stricter slug. */
 export const createProjectV1Schema = z
 	.object({

@@ -10,6 +10,3 @@ import { serverOrigin } from "./server-url";
  * `undefined` at runtime. Nothing is hand-written per endpoint.
  */
 export const api = createApiClient(serverOrigin(env.VITE_SERVER_URL));
-
-/** Named here because this module owns the instance. */
-export type Api = typeof api;

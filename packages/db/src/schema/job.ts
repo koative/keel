@@ -13,8 +13,6 @@ import {
 /** The states a job moves through. `done` and `failed` are terminal. */
 export const JOB_STATUSES = ["pending", "running", "done", "failed"] as const;
 
-export type JobStatus = (typeof JOB_STATUSES)[number];
-
 /**
  * Background work, queued in the database the application already has.
  *
