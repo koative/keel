@@ -17,7 +17,6 @@ const storage = createStorage(CONFIG);
 /** Named so each expectation says which rule it is checking. */
 const NOT_POSITIVE = /positive whole number/;
 const OVER_MAX_WINDOW = /at most 604800/;
-const SIGNATURE = /^[0-9a-f]{64}$/;
 const AMZ_DATE = /^\d{8}T\d{6}Z$/;
 
 /**
@@ -38,29 +37,32 @@ const AMZ_DATE = /^\d{8}T\d{6}Z$/;
  *     AWS4<secret> -> day -> region ("auto") -> "s3" -> "aws4_request"
  *   signature = hex(HMAC-SHA256(signing key, string to sign))
  *
- * Worked check, hand-derivable from the above: with the fixed date
- * 20260812T123600Z the signature is
- * 322ef94f32c535ed24faff3298260064b0cf4f8b6c7c8107ddf156a1fe1e7e58.
- * The chain itself is pinned against AWS's published worked example (secret
- * wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY, date 20130524T000000Z,
- * us-east-1/s3, GET /test.txt):
- * f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41.
+ * Pinned against AWS's published presigned-URL example — access key
+ * AKIAIOSFODNN7EXAMPLE, secret wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY,
+ * 20130524T000000Z, us-east-1/s3, GET test.txt on examplebucket, 86400 seconds
+ * — which this procedure reproduces exactly. That vector is asserted below
+ * rather than quoted here: a number in a comment cannot fail, and an error in
+ * this reference is the one thing a worked example is there to catch.
  *
- * X-Amz-Date is read from the generated URL rather than fixed: Bun's S3Client
- * stamps the wall clock inside its native signer and exposes no injection
- * point, so a fixed-date literal would be wrong the next second. The reference
- * uses only fixed inputs otherwise: the bucket/key pair, the endpoint's host,
- * the region ("auto" — Bun's guess for a non-Amazon endpoint), service "s3"
- * and the expiry. Any regression in region, host style, canonical request
- * construction, header signing or encoding changes the asserted signature.
+ * The live URL's X-Amz-Date is read back out of it rather than fixed: Bun's
+ * S3Client stamps the wall clock inside its native signer and exposes no
+ * injection point, so a fixed-date literal would be wrong the next second. The
+ * known-answer test supplies its own date instead, which is what pins this
+ * reference to a fixed instant even though the client cannot be. Every other
+ * input is fixed: the bucket/key pair, the endpoint's host, the region ("auto" —
+ * Bun's guess for a non-Amazon endpoint), service "s3" and the expiry. Any
+ * regression in region, host style, canonical request construction, header
+ * signing or encoding changes the asserted signature.
  */
 function expectedSignature(options: {
 	accessKeyId: string;
 	amzDate: string;
 	bucket: string;
 	expiresInSeconds: number;
+	forcePathStyle: boolean;
 	host: string;
 	key: string;
+	region: string;
 	secretAccessKey: string;
 }): string {
 	const {
@@ -68,12 +70,13 @@ function expectedSignature(options: {
 		amzDate,
 		bucket,
 		expiresInSeconds,
+		forcePathStyle,
 		host,
 		key,
+		region,
 		secretAccessKey,
 	} = options;
 	const amzDay = amzDate.slice(0, 8);
-	const region = "auto";
 	const canonicalQuery = [
 		"X-Amz-Algorithm=AWS4-HMAC-SHA256",
 		`X-Amz-Credential=${accessKeyId}%2F${amzDay}%2F${region}%2Fs3%2Faws4_request`,
@@ -83,7 +86,7 @@ function expectedSignature(options: {
 	].join("&");
 	const canonicalRequest = [
 		"GET",
-		`/${bucket}/${key}`,
+		forcePathStyle ? `/${bucket}/${key}` : `/${key}`,
 		canonicalQuery,
 		`host:${host}`,
 		"",
@@ -106,16 +109,29 @@ function expectedSignature(options: {
 }
 
 describe("presigned URLs", () => {
-	it("addresses the object under the bucket path when path style is forced", () => {
-		const url = new URL(
-			storage.createDownloadUrl(KEY, { expiresInSeconds: 60 })
-		);
-
-		expect(url.host).toBe("localhost:9000");
-		expect(url.pathname).toBe(`/${CONFIG.bucket}/${KEY}`);
+	/**
+	 * The known answer: AWS's own worked presign example, whose signature AWS
+	 * publishes. It asserts nothing about this repo's client — it proves the
+	 * reference above is SigV4 as specified and not merely self-consistent, which
+	 * is what lets the next test trust it.
+	 */
+	it("reproduces AWS's published presign signature", () => {
+		expect(
+			expectedSignature({
+				accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+				amzDate: "20130524T000000Z",
+				bucket: "examplebucket",
+				expiresInSeconds: 86_400,
+				forcePathStyle: false,
+				host: "examplebucket.s3.amazonaws.com",
+				key: "test.txt",
+				region: "us-east-1",
+				secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+			})
+		).toBe("aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404");
 	});
 
-	it("signs the canonical request to a known answer", () => {
+	it("signs the client's own URL with the same procedure", () => {
 		const url = new URL(
 			storage.createDownloadUrl(KEY, { expiresInSeconds: 300 })
 		);
@@ -146,8 +162,10 @@ describe("presigned URLs", () => {
 				amzDate,
 				bucket: CONFIG.bucket,
 				expiresInSeconds: 300,
+				forcePathStyle: true,
 				host: new URL(CONFIG.endpoint).host,
 				key: KEY,
+				region: "auto",
 				secretAccessKey: CONFIG.secretAccessKey,
 			})
 		);
@@ -166,16 +184,6 @@ describe("presigned URLs", () => {
 
 		expect(url.host).toBe("keel.s3.eu-west-1.amazonaws.com");
 		expect(url.pathname).toBe(`/${KEY}`);
-	});
-
-	it("carries the requested lifetime inside the signature", () => {
-		const url = new URL(
-			storage.createDownloadUrl(KEY, { expiresInSeconds: 300 })
-		);
-
-		// Signed, not a query parameter a holder can extend.
-		expect(url.searchParams.get("X-Amz-Expires")).toBe("300");
-		expect(url.searchParams.get("X-Amz-Signature")).toMatch(SIGNATURE);
 	});
 
 	it("signs an upload for PUT and a download for GET", () => {
