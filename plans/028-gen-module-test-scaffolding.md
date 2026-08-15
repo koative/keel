@@ -41,7 +41,7 @@
   - `<name>.repository.test.ts` — asserts the repository's `and(...)` tenancy filter returns nothing for another organization's rows, and a keyset/paging probe if the module has a list endpoint (the reference has `projects.repository.paging.test.ts`; check whether the generator's repository emits a cursor — if it does, include the probe; if not, skip it with a comment).
   - If the generator's service has an async boundary worth covering beyond what `service.test.ts` already does, skip — `service.test.ts` already exists.
 - [x] **Step 3:** Update the next-steps prompt (`:749-750`) to list the newly generated test files and the manual contract-test step (if the public surface is not mounted).
-- [x] **Step 4:** Prove it: run the generator to a throwaway module name (`bun tools/gen-module.ts <scratch-name>` — check its CLI flags first), then run the generated tests with explicit paths (`cd apps/server && bun test src/modules/<scratch-name>/...`), then delete the throwaway module tree. Iterate until the generated tests pass green against the test DB.
+- [x] **Step 4:** Prove it: run the generator to a throwaway module name (`bun tools/gen-module.ts <scratch-name>` — check its CLI flags first), then run the generated tests with explicit paths (`cd apps/server && bun test src/modules/<scratch-name>/...`), then delete the throwaway module tree. Iterate until the generated tests pass green against the test DB. **This step was ticked before it was true — see the Follow-up below.**
 - [x] **Step 5:** Run `bun tools/check-naming.ts` to confirm the new file names pass the convention.
 - [x] **Step 6:** Commit: `feat(tools): gen-module scaffolds route and repository tests`.
 
@@ -49,10 +49,61 @@
 
 - `gen-module` emits a routes test and a repository test skeleton covering: 401/403/404/422 envelope cases and the tenancy filter, per the reference module's patterns.
 - The next-steps message lists the new test files.
-- A throwaway generated module's tests pass, then the module is removed (working tree clean of it).
+- A throwaway generated module's tests pass, then the module is removed (working tree clean of it). **Not true when this box was ticked; true only after `36284f0` and `bd664ff` — see the Follow-up below.**
 
 ## Out of scope
 
 - **TEST-10/014** (check-rules fixture coverage) — already landed.
 - The v1 contract test generation (kept as a manual step if the public surface is unmounted at generation time).
 - The SKILL.md docs — unless the generator's next-steps references them and the wording must change with the new files.
+
+## Follow-up (executed, commits `36284f0` and `bd664ff`)
+
+Task 1 Step 4 and the third Done-when bullet were ticked before either was
+true. The generator emitted the two new skeletons, but a throwaway module's
+tests did not pass — they did not typecheck, and for a while the generator
+could not even emit them intact. Two commits repaired it.
+
+`36284f0` *(fix(tools): generated tests typecheck and gate on the table
+existing)* fixed four defects in `tools/gen-module.ts`:
+
+- The generated repository stubs returned `Promise<never[]>`, so every property
+  read in the emitted suites was a TS2339.
+- `db.execute` was destructured as an array (TS2488); it does not return one.
+- The chain anchor still looked for `const routes = app`, a shape the `app.ts`
+  split had already invalidated, so the generator could not mount what it
+  generated.
+- Two template comments contained unescaped backticks, which closed the
+  emitting template literal early and truncated the file being written.
+
+`bd664ff` *(Gate generated suites on a named table, not a guessed one)* fixed
+six more, verified against a throwaway `api-keys` module:
+
+- Both generated suites gated on `to_regclass(singular.toLowerCase())` — for
+  the advertised `api-keys` that is `apikey`, while the table is `api_key` — so
+  the gates were false for the life of the module and the cross-tenant case and
+  the 404 case skipped silently. Replaced with a `TABLE` constant plus
+  `tableExists()` from `apps/server/test-db.ts` and a loud
+  `waiting for <table>` notice.
+- The mount was spliced into `apps/server/src/app.ts`, but `AppType` derives
+  from `internalRoutes` alone (plan 029), so every generated module was
+  invisible to `hc<AppType>`: a rebuilt `apps/server/types/app.d.mts` had zero
+  occurrences of `api-keys` under the old generator and `"/api/api-keys"` under
+  the new one. The anchor is now the `new Hono<AppEnv>()` declaration head in
+  `apps/server/src/internal-routes.ts`. (The old splice also landed after the
+  `/v1` mount while its own comment claimed new internal surfaces slot in
+  before it — moot now that the target has moved.)
+- The published `/v1` prose read "Fetch one apikey" and "A apikey belonging
+  to…"; it now uses a spoken singular, "api key".
+- The next-steps message claimed the suites self-enable at step 3; they key on
+  the table, which is step 1, and fail with `<name>: not implemented` until
+  step 3. Text corrected, and step 1 now names the table.
+- The generated file header claimed the module "registers both of its
+  surfaces"; `public/` is deliberately unmounted.
+- `apps/server/test-db.ts` gained `tableExists`, and `testDbReady` is now
+  expressed in terms of it, so the repository asks Postgres about a table one
+  way.
+
+Recorded here rather than left implicit because plan 028's proof step is the
+only thing standing between the generator and a module that ships with dead
+gates: the suites it writes are exactly the ones nobody reads again.
