@@ -9,7 +9,7 @@ import type { Context } from "hono";
 import type { AppEnv } from "@/lib/context";
 import { enqueue } from "@/lib/jobs";
 import { NO_TIMESTAMP, verifySignature } from "@/lib/webhook";
-import { insertEvent } from "../webhooks.repository";
+import { deleteEvent, insertEvent } from "../webhooks.repository";
 import type { WebhookHeaders, WebhookProvider } from "./webhooks.schema";
 
 /** The signature header every grammar on this route shares. */
@@ -124,11 +124,12 @@ type ReceiveContext = Context<
  *   5. Return 200 — the event is durable, which is what the provider's retry
  *      clock is allowed to stop.
  *
- * A failure between persist and enqueue (step 3 done, step 4 not) leaves a
- * durable row with no job, and the provider's retry will 200 without creating
- * one — by design. That is the reference implementation's accepted corner; a
- * real provider integration's reconciliation sweep scans for rows whose
- * `processed_at` never gets set.
+ * A failure between persist and enqueue (step 3 done, step 4 not) is the one
+ * case where a 200 would be a lie: the provider's retry inserts nothing, so the
+ * `if (created)` guard would skip the enqueue and the event would stay durable
+ * and unprocessed for good. The row is therefore deleted again and the failure
+ * propagates, which puts the event back to never-received — the one state the
+ * provider's own retry repairs.
  */
 export async function receive(c: ReceiveContext) {
 	const rawBody = await c.req.arrayBuffer();
@@ -169,11 +170,19 @@ export async function receive(c: ReceiveContext) {
 	});
 
 	if (created) {
-		await enqueue({
-			dedupeKey: `webhook:${provider}:${eventId}`,
-			kind: "webhook.process",
-			payload: { eventId, provider, receivedAt: receivedAt.toISOString() },
-		});
+		try {
+			await enqueue({
+				dedupeKey: `webhook:${provider}:${eventId}`,
+				kind: "webhook.process",
+				payload: { eventId, provider },
+			});
+		} catch (error) {
+			// The compensation has to run before the response, because a durable row
+			// with no job is the one failure a provider retry cannot repair. A delete
+			// that fails too leaves the request the 500 it already was.
+			await deleteEvent(provider, eventId);
+			throw error;
+		}
 	}
 
 	return ok(c, { eventId });

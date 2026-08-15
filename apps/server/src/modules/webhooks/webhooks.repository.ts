@@ -6,8 +6,9 @@ import { and, eq, isNull } from "drizzle-orm";
  * The only file in the webhooks module allowed to touch Drizzle.
  *
  * The receiver inserts under the unique (provider, event_id) index — the
- * durable half of the deduplication — and the worker marks the row processed
- * under the same key.
+ * durable half of the deduplication — and takes the row back out when it could
+ * not queue the job beside it; the worker marks the row processed under the same
+ * key.
  */
 
 /**
@@ -36,6 +37,34 @@ export async function insertEvent(input: {
 		.returning({ id: webhookEvent.id });
 
 	return row !== undefined;
+}
+
+/**
+ * Removes a delivery the receiver could not finish queueing.
+ *
+ * The compensation for a `webhook_event` row that committed while the job
+ * beside it did not: without it the provider's retry finds the row present,
+ * inserts nothing, skips the enqueue and gets a 200, so the event stays
+ * persisted and unprocessed with nothing left to trigger it. Deleting the row
+ * puts the event back to never-received, which is the one state the provider's
+ * own retry can repair.
+ *
+ * By the natural key rather than the row id, like `markProcessed`: the receiver
+ * knows the delivery it just created by (provider, eventId), and the unique
+ * index guarantees that is one row.
+ */
+export async function deleteEvent(
+	provider: string,
+	eventId: string
+): Promise<void> {
+	await db
+		.delete(webhookEvent)
+		.where(
+			and(
+				eq(webhookEvent.provider, provider),
+				eq(webhookEvent.eventId, eventId)
+			)
+		);
 }
 
 /**
