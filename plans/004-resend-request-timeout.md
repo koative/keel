@@ -490,7 +490,7 @@ The three ~20ms lines are the proof: each is a stall that ended on its own budge
 bun run check
 ```
 
-Expected: every task successful, `check-naming` reporting one more suite than before (34 on a tree where this is the only plan applied), 16 architecture rules verified, migrations match. `send.ts` grows to roughly 165 lines of which about 80 are code — well inside the 200-line cap — and `send.timeout.test.ts` lands near 160 lines with about 120 of code.
+Expected: every task successful; `check-naming` exits 0, prints `check-naming: <n> suites and their helpers are named and placed to convention.` and counts `packages/mail/src/send.timeout.test.ts` among them — the count itself is whatever the tree holds and is not an acceptance criterion, because every later plan that adds a suite moves it. `check-rules` exits 0; migrations match. `send.ts` grows to roughly 165 lines of which about 80 are code — well inside the 200-line cap — and `send.timeout.test.ts` lands near 160 lines with about 120 of code.
 
 - [x] **Step 7: Commit**
 
@@ -530,6 +530,8 @@ connect\", and the nine existing send cases are unchanged. 15 pass, 0 fail in
 the mail package; \`bun run check\` green with 34 suites."
 ```
 
+*(The message above is `a6f6e47` verbatim. Its "34 suites" was the count on the tree that commit was made against; `check-naming` prints 51 at HEAD, because the number moves with every plan that lands a suite. What the commit actually proved is that `send.timeout.test.ts` is counted and the checker exits 0.)*
+
 ---
 
 ## Done when
@@ -540,7 +542,7 @@ the mail package; \`bun run check\` green with 34 suites."
 - A failure that is not an abort — a refused connection, a non-OK status — reaches the caller with its original message, unwrapped.
 - `RESEND_TIMEOUT_MS` is strictly less than the worker's 10 000 ms drain deadline, and a test says so.
 - No environment key was added, and `.env.example`, `apps/server/.env`, `.env.test` and `docker-compose.prod.yml` are untouched.
-- `bun run check` is green; `check-naming` counts `send.timeout.test.ts` as a suite.
+- `bun run check` is green; `check-naming` exits 0 and counts `send.timeout.test.ts` as a suite. (The suite total the checker prints is deliberately not pinned here: it moves with every plan that lands a suite.)
 
 ## Out of scope
 

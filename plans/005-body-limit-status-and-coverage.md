@@ -306,7 +306,7 @@ Expected: `26 pass, 0 fail`. The second test in that file — `POST /v1/projects
 bun run check
 ```
 
-Expected: every task successful, `check-naming` still reporting 33 suites (this task adds no suite file), 16 architecture rules verified, migrations match.
+Expected: every task successful; `check-naming` exits 0 with the same suite count as the run before this task, because this task adds no suite file. `check-rules` exits 0; migrations match.
 
 ^- [x] **Step 12: Commit**
 
@@ -491,7 +491,7 @@ Expected: every existing suite still green, five more tests than the run before 
 bun run check
 ```
 
-Expected: every task successful, `check-naming` reporting **34** suites — one more than Task 1's run, because `security.test.ts` is a new suite named to convention beside the module it covers. 16 architecture rules verified, migrations match.
+Expected: every task successful; `check-naming` exits 0, prints `check-naming: <n> suites and their helpers are named and placed to convention.`, and counts `apps/server/src/lib/security.test.ts` — one more suite than Task 1's run, because it is a new suite named to convention beside the module it covers. The total itself is not an acceptance criterion: it moves with every later plan that lands a suite. `check-rules` exits 0; migrations match.
 
 - [x] **Step 5: Commit**
 
@@ -535,7 +535,7 @@ without a query."
 - The comment at `apps/server/src/index.ts:26` is a true statement about the code.
 - `packages/http/src/response.failure.test.ts` fails if `PAYLOAD_TOO_LARGE` is removed from `ERROR_CODE_BY_STATUS`.
 - `apps/server/src/lib/security.test.ts` exists, passes with no database running, and fails if `requestBodyLimit` moves below `requireUser` or if `/reference` loses its own policy.
-- `bun run check` is green and `check-naming` reports 34 suites.
+- `bun run check` is green, and `check-naming` exits 0 counting `security.test.ts` as a suite. (The suite total the checker prints is deliberately not pinned: it was 34 when this plan landed and is 51 at HEAD.)
 
 ## Out of scope
 

@@ -7,7 +7,7 @@
 
 **Goal:** Make `docker-compose.prod.yml` forward every key `packages/env` declares, and make a script — not a paragraph in `AGENTS.md` — the thing that keeps it that way.
 
-**Architecture:** `packages/env/src/server.ts` declares 31 keys, 16 of them `.optional()`. `docker-compose.prod.yml`'s `x-app-env` anchor forwards 21, and eleven schema keys are simply absent from it: `AI_API_KEY`, `AI_MODEL`, `SECRETS_ENCRYPTION_KEY` and all eight `STORAGE_*`. Every service in that file uses `environment: *app-env` with no `env_file`, so the anchor is the entire container boundary — a key it omits is a key the deploy exported and the process never receives. Task 1 adds the eleven in the `${VAR:-}` pass-through form the file already uses for its other optional keys. Task 2 adds `tools/check-env.ts` to `bun run check`, so the next key added to the schema cannot quietly skip the compose file.
+**Architecture:** `packages/env/src/server.ts` declares every server key in one object, a majority of them `.optional()` (31 keys / 16 optional at the audited commit `39fd32c`; 32 / 17 at HEAD, since `WEBHOOK_SECRET` landed later). `docker-compose.prod.yml`'s `x-app-env` anchor forwards 21 of them, and eleven schema keys are simply absent from it: `AI_API_KEY`, `AI_MODEL`, `SECRETS_ENCRYPTION_KEY` and all eight `STORAGE_*`. Every service in that file uses `environment: *app-env` with no `env_file`, so the anchor is the entire container boundary — a key it omits is a key the deploy exported and the process never receives. Task 1 adds the eleven in the `${VAR:-}` form the file already uses; Task 2 adds `tools/check-env.ts` so the omission cannot recur silently.
 
 **Tech Stack:** Bun (`Bun.file`, top-level await), Docker Compose v2 interpolation, `@t3-oss/env-core` + zod 4.4.3 (read as text, never imported), Biome/Ultracite.
 
@@ -25,7 +25,7 @@ Everything below was checked against the working tree at `39fd32c`, not copied f
 
    Nothing executes that sentence. `bun run check` runs `check-catalog`, `check-naming`, `check-rules` and `check-migrations` (`package.json:49`) and none of them reads a compose file.
 
-2. **The counts.** Measured, not estimated:
+2. **The counts, as measured at the audited commit `39fd32c`.** They are a snapshot, not an invariant — every later plan that adds a key moves all three (at HEAD the first two are 32 and 17, because the webhook work added `WEBHOOK_SECRET` and forwarded it at `docker-compose.prod.yml:99`). What matters below is the *set difference*, which is stable: eleven declared keys the anchor does not forward.
 
    ```
    grep -cE '^\t\t[A-Z][A-Z0-9_]*:' packages/env/src/server.ts   → 31   schema keys
@@ -72,7 +72,7 @@ Everything below was checked against the working tree at `39fd32c`, not copied f
 
    Compose is not warning about anything; it resolves cleanly and produces a container that never sees the variables. `resolveAi` then throws `AI_API_KEY is required to run an ai.generate job…` (`ai.ts:27`) on the first such job, naming a key the operator did set — the silent-failure mode the whole `resolve*`-guard design exists to prevent.
 
-6. **`.env.example` is already complete.** All 31 schema keys appear there, the optional ones commented out under the `── Optional ──` heading (`.env.example:124-209`). This plan changes nothing in it, and Task 2's guard passes that half of the check on the current tree.
+6. **`.env.example` is already complete.** Every schema key appears there, the optional ones commented out under the `── Optional ──` heading (`.env.example:124-209`). This plan changes nothing in it, and Task 2's guard passes that half of the check on the current tree.
 
 7. **`.env.test` is not a mirror of the schema and must not be treated as one.** It holds 13 keys and omits `NODE_ENV` and `DATABASE_URL`, which both test preloads assign themselves (`.env.test:14-46`). Task 2's guard deliberately does not check it.
 
@@ -117,7 +117,7 @@ Everything below was checked against the working tree at `39fd32c`, not copied f
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: an `x-app-env` block containing all 31 keys of `packages/env/src/server.ts` plus `TZ`. Task 2's guard asserts exactly this.
+- Produces: an `x-app-env` block containing every key `packages/env/src/server.ts` declares, plus `TZ`. Task 2's guard asserts exactly this — key for key, not by count.
 
 - [x] **Step 1: Watch the keys vanish at the container boundary**
 
@@ -346,7 +346,7 @@ grep -cE '^\t\t[A-Z][A-Z0-9_]*:' packages/env/src/server.ts
 grep -cE '\.optional\(\)' packages/env/src/server.ts
 ```
 
-Expected: `31` and `16`.
+Expected: two numbers, the second smaller than the first, and both matching what you can count by eye in `packages/env/src/server.ts` — `31` and `16` at the audited commit, `32` and `17` at HEAD. Do not hard-code either into the script you are about to write; Step 3 derives them from the file.
 
 - [x] **Step 2: Decide how to read the compose file, and confirm no YAML library exists**
 
@@ -575,10 +575,12 @@ Three notes on choices a reviewer will ask about:
 bun tools/check-env.ts
 ```
 
-Expected, exactly:
+Expected, exit 0 and one line of this shape — the count is whatever
+`packages/env/src/server.ts` declares on the tree you are standing on, `31` at
+the audited commit and `32` at HEAD, and is not the thing being asserted:
 
 ```
-check-env: 31 schema keys documented in .env.example and forwarded by docker-compose.prod.yml.
+check-env: <n> schema keys documented in .env.example and forwarded by docker-compose.prod.yml.
 ```
 
 If it reports eleven problems naming `AI_API_KEY` and the `STORAGE_*` keys, Task 1 is not applied — go back and apply it.
@@ -652,7 +654,7 @@ git diff --stat && bun tools/check-env.ts
 rm -f /tmp/compose.bak /tmp/example.bak
 ```
 
-Expected: only `package.json` and the new `tools/check-env.ts` differ once Step 6 has run — at this point in the task, nothing at all — and the script prints its 31-key summary.
+Expected: only `package.json` and the new `tools/check-env.ts` differ once Step 6 has run — at this point in the task, nothing at all — and the script prints its one-line summary and exits 0.
 
 - [x] **Step 6: Wire it into the gate**
 
@@ -676,10 +678,10 @@ Alphabetical among the `tools/check-*` scripts, which is the order they are alre
 bun run check
 ```
 
-Expected: every task successful, and one new line in the output between `check-catalog` and `check-naming`:
+Expected: every task successful, and one new line in the output between `check-catalog` and `check-naming`, of the same shape Step 4 printed:
 
 ```
-check-env: 31 schema keys documented in .env.example and forwarded by docker-compose.prod.yml.
+check-env: <n> schema keys documented in .env.example and forwarded by docker-compose.prod.yml.
 ```
 
 - [x] **Step 8: Commit**
@@ -721,7 +723,7 @@ again afterwards."
 - `docker compose -f docker-compose.prod.yml --env-file <a deploy env> config` renders `AI_API_KEY`, `AI_MODEL`, `SECRETS_ENCRYPTION_KEY` and all eight `STORAGE_*` inside every service that uses `environment: *app-env`.
 - A deploy environment that sets none of those eleven still renders: `docker compose -f docker-compose.prod.yml --env-file <that env> config --quiet` exits 0.
 - None of the eleven carries a value in the file: `grep -E '^  (AI_|SECRETS_|STORAGE_)' docker-compose.prod.yml` shows only the `${VAR:-}` form.
-- `bun tools/check-env.ts` prints `check-env: 31 schema keys documented in .env.example and forwarded by docker-compose.prod.yml.` and exits 0.
+- `bun tools/check-env.ts` exits 0 and prints one line of the form `check-env: <n> schema keys documented in .env.example and forwarded by docker-compose.prod.yml.` The count is deliberately not pinned: it was 31 when this plan landed and is 32 at HEAD, because `WEBHOOK_SECRET` was added afterwards and correctly forwarded at `docker-compose.prod.yml:99` — the guard doing its job, not the plan being violated.
 - Deleting any single key line from `x-app-env` makes `bun run check` fail naming that key and the file it belongs in.
 - `bun run check` passes.
 
