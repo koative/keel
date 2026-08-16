@@ -19,7 +19,14 @@
     // Force-ignore only. A catch-all here trips noBiomeFirstException, and that
     // rule's own safe fix produces a config where nothing is included and the
     // module resolver panics. The extended preset supplies the catch-all.
-    "includes": ["!!bts.jsonc"]
+    //
+    // `migrations/meta` is drizzle-kit's output, not source: it rewrites
+    // `_journal.json` on every `db:generate` and emits each snapshot once, both
+    // unformatted. Three commits here exist only to reformat them — `e7a227d`,
+    // `e9056d9`, `79ac296` — and the next generate strips the journal's newline
+    // again, so the fourth was already scheduled. Nothing reads these files but
+    // drizzle, which wrote them.
+    "includes": ["!!bts.jsonc", "!!packages/db/src/migrations/meta"]
   },
   "formatter": {
     "enabled": true,
