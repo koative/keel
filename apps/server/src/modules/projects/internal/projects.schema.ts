@@ -54,6 +54,4 @@ export const projectPageSchema = z.object({
 export type ProjectPageQuery = z.output<typeof projectPageSchema>;
 
 /** Everything the frontend has, including fields a customer has no business seeing. */
-export const projectSchema = projectFields;
-
-export type ProjectResponse = z.infer<typeof projectSchema>;
+export type ProjectResponse = z.infer<typeof projectFields>;
