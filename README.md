@@ -426,3 +426,19 @@ what has been applied. `db:push` is for local iteration only.
 
 TLS and routing are deliberately absent: terminate them in whatever already owns
 your domain and point it at `server` on port 3000.
+
+**The SPA and the API have to be same-site.** In production the session cookie is
+`SameSite=Lax`, and that is the cookie layer's own CSRF defence — `None` is the value
+that lets the session travel on any site's request, which is why it is only used in
+development, where the two dev origins are cross-site by construction. Lax costs
+nothing when the browser considers your two origins the same site, and costs
+everything when it does not: the browser omits the cookie, every request arrives with
+no session, and nothing in any log names the cause. Getting CORS right does not save
+it — CORS decides whether the browser hands your JavaScript the response, `SameSite`
+decides whether the request carried the cookie at all.
+
+Same site means one registrable domain. `app.example.com` and `api.example.com`
+qualify, and so does a different port on the same host; `example.com` with
+`api.example.io` does not. A deployment that genuinely needs cross-site has to widen
+`sameSite` in `packages/auth/src/index.ts` to `"none"` and add a CSRF token of its
+own, because widening it alone removes the only defence the cookie had.
