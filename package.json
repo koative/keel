@@ -58,7 +58,7 @@
   "type": "module",
   "scripts": {
     "build": "turbo run build",
-    "check": "turbo run check-types test && bun run lint && bun tools/check-catalog.ts && bun tools/check-env.ts && bun tools/check-naming.ts && bun tools/check-rules.ts && bun tools/check-migrations.ts && bun tools/check-app-types.ts",
+    "check": "bun tools/check-tests.ts && bun run lint && bun tools/check-catalog.ts && bun tools/check-env.ts && bun tools/check-naming.ts && bun tools/check-rules.ts && bun tools/check-migrations.ts && bun tools/check-app-types.ts",
     "check-types": "turbo run check-types",
     "db:down": "docker compose down postgres",
     "db:generate": "turbo run db:generate -F @keel/db",
