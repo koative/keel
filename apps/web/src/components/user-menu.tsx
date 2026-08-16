@@ -39,6 +39,15 @@ export default function UserMenu() {
 					<DropdownMenuLabel>My Account</DropdownMenuLabel>
 					<DropdownMenuSeparator />
 					<DropdownMenuItem>{session.user.email}</DropdownMenuItem>
+					{/*
+					 * Rendered as a link rather than an onClick like Sign Out below: this
+					 * is a navigation, so it should be an anchor a user can open in a new
+					 * tab. It sits in this menu because the page is the user's, not the
+					 * active organization's — the same reason its route is outside `_org`.
+					 */}
+					<DropdownMenuItem render={<Link to="/settings/account" />}>
+						Account settings
+					</DropdownMenuItem>
 					<DropdownMenuItem
 						onClick={() => {
 							authClient.signOut({
