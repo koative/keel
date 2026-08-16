@@ -1,7 +1,4 @@
-import {
-	type projectFields,
-	projectWritableFields,
-} from "@keel/contracts/project";
+import { projectFields, projectWritableFields } from "@keel/contracts/project";
 import { z } from "zod";
 import { type Cursor, decodeCursor } from "@/lib/cursor";
 
@@ -56,5 +53,17 @@ export const projectPageSchema = z.object({
 
 export type ProjectPageQuery = z.output<typeof projectPageSchema>;
 
-/** Everything the frontend has, including fields a customer has no business seeing. */
-export type ProjectResponse = z.infer<typeof projectFields>;
+/**
+ * Everything the frontend has, including fields a customer has no business seeing.
+ *
+ * The alias is not decoration, and deleting it as a one-line derivation is how this
+ * was learned: `ProjectResponse` must infer from a symbol declared *here*. Inferring
+ * straight from the imported `projectFields` makes `tsdown` emit a bare
+ * `import "@keel/contracts/project"` at the head of `types/app.d.mts`, which pulls
+ * drizzle-orm's declarations into a bundle compiled with `types: []` and fails
+ * `tools/check-app-types.ts` with 87 errors from inside a dependency. A local binding
+ * keeps the bundle self-contained, which is the property that check exists to hold.
+ */
+export const projectSchema = projectFields;
+
+export type ProjectResponse = z.infer<typeof projectSchema>;
