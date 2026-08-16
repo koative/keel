@@ -64,6 +64,13 @@
       "when": 1786550824688,
       "tag": "0008_sweep_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786840877522,
+      "tag": "0009_audit_log",
+      "breakpoints": true
     }
   ]
 }

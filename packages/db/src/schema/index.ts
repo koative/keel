@@ -1,4 +1,5 @@
 export * from "./ai-usage";
+export * from "./audit-log";
 export * from "./auth";
 export * from "./idempotency";
 export * from "./job";
