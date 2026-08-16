@@ -15,10 +15,13 @@ type GenerateContext = Context<
  *
  * Nothing generates here — the whole point of the queue is that a completion,
  * which takes seconds, does not fit in a request budget. The job id is the
- * endpoint's value: a client can watch the row settle, or simply trust the
- * worker. `created: false` with a null id means the `dedupeKey` named work
- * already in flight, so this request joined it rather than queueing again —
- * which is the second charge that does not happen.
+ * endpoint's value, but as a correlation handle only: no route reads the `job`
+ * table, so a client cannot watch the row settle over HTTP and has to trust the
+ * worker. It is what an operator matches against the worker's output, and what a
+ * status route would key on if one is ever added. `created: false` with a null
+ * id means the `dedupeKey` named work already in flight, so this request joined
+ * it rather than queueing again — which is the second charge that does not
+ * happen.
  *
  * The stored key is the caller's prefixed with its tenant, because `job` is not
  * tenant-scoped: one global partial unique index on `dedupe_key` arbitrates the

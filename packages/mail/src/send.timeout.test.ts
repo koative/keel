@@ -15,10 +15,13 @@ const TIMEOUT_MESSAGE = /Resend did not answer within 20ms/;
 const CONNECT_MESSAGE = /Unable to connect/;
 
 /**
- * Duplicated on purpose from `apps/server/src/worker.ts:117`. A package may not
- * import from `apps/`, and the coupling is worth pinning anyway: the budget has
- * to stay under the worker's drain deadline, or one hung send is enough on its
- * own to turn a graceful shutdown into `process.exit(1)`.
+ * Duplicated on purpose from `SHUTDOWN_DEADLINE_MS` in
+ * `apps/server/src/worker.ts:26`. A package may not import from `apps/`, that
+ * constant is not exported, and importing that file would start its poll loop —
+ * so this is a copy, and lowering the real deadline leaves this assertion green.
+ * The coupling is worth pinning anyway: the budget has to stay under the
+ * worker's drain deadline, or one hung send is enough on its own to turn a
+ * graceful shutdown into `process.exit(1)`.
  */
 const WORKER_SHUTDOWN_DEADLINE_MS = 10_000;
 

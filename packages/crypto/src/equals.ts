@@ -9,9 +9,14 @@ import { timingSafeEqual } from "node:crypto";
  * many leading bytes were right. Enough retries turn that into the secret, one
  * byte at a time. `timingSafeEqual` reads both buffers in full regardless.
  *
- * The length check up front is deliberate and not a hole: `timingSafeEqual`
- * throws on mismatched lengths, and the length of a signature or a digest is
- * fixed and public anyway. What must not leak is the content.
+ * The length check up front is a disclosure, not a free pass: `timingSafeEqual`
+ * throws on mismatched lengths, so something has to give, and what gives is the
+ * byte length of the expected value. That is only acceptable where the length is
+ * fixed and public — a digest, or a token of documented width. `webhook.ts`
+ * qualifies: it rejects anything but 64 hex characters before it calls here. A
+ * secret whose length its holder chose — an API key — has to be hashed to a
+ * fixed width first, or this tells an attacker how long it is. What must never
+ * leak is the content.
  */
 export function safeEquals(a: string, b: string): boolean {
 	const left = Buffer.from(a);

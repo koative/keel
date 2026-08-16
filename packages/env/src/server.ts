@@ -144,12 +144,14 @@ export const env = createEnv({
 		 */
 		STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive(),
 		/**
-		 * The bucket. Every key here is optional, including the provider: nothing in
-		 * this starter stores a file yet, so a deployment that never uploads one
-		 * needs none of them, and demanding a bucket to boot would be a tax on
-		 * everyone else. `resolveStorage()` is the guard instead — it throws naming
-		 * whichever of these is missing, the first time storage is asked for, the
-		 * same way `resolveMailConfig` does for `RESEND_API_KEY`.
+		 * The bucket. Every key here is optional, including the provider: the
+		 * `/api/storage` routes are mounted and any signed-in member can ask them
+		 * for a presigned URL, but a deployment that never does needs none of these,
+		 * and demanding a bucket to boot would be a tax on everyone else.
+		 * `resolveStorage()` is the guard instead — it throws naming whichever of
+		 * these is missing, the first time storage is asked for, and the handler
+		 * turns that into a 503, the same way `resolveMailConfig` does for
+		 * `RESEND_API_KEY`.
 		 */
 		STORAGE_ACCESS_KEY_ID: z.string().min(1).optional(),
 		/** Cloudflare account id. Required by, and only by, `STORAGE_PROVIDER=r2`. */

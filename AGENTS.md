@@ -47,8 +47,10 @@ Anything that can outlive a request goes in the `job` table and runs in
 replica. `enqueue` from `@/lib/jobs` is the only way in — `jobs.repository` is private
 to that module — and takes a `dedupeKey` to collapse duplicate in-flight work. Webhook
 receivers verify over `await c.req.arrayBuffer()`, refuse a delivery stamped more than
-five minutes from now, persist, enqueue under the provider's event id, return 200; a
-re-stringified body produces a different digest and rejects every event.
+five minutes from now where the grammar carries a timestamp — `bare` carries none and
+gets no window, so the unique index is its only replay guard — persist, enqueue under
+the provider's event id, return 200; a re-stringified body produces a different digest
+and rejects every event.
 
 Mail is queued work, never inline: a hook calls `enqueueMail` and the worker sends,
 so a slow provider cannot slow sign-up and a failed send is retried instead of lost.

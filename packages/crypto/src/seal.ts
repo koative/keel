@@ -5,11 +5,15 @@ const ALGORITHM = "aes-256-gcm";
 /**
  * Every stored value carries its own format tag.
  *
- * A rotation or an algorithm change is then detectable per row: the reader sees
- * `v2.` on the rows already migrated and `v1.` on the rest, and can open both
- * while a background pass rewrites them. A single deployment-wide flag would
- * force a flag-day migration instead — every row rewritten inside one window,
- * with no way to read what has not been converted yet.
+ * Only one generation exists: `isEnvelope` accepts `v1` and nothing else, so
+ * `open` throws on a `v2.` row rather than reading it. What the tag buys today
+ * is detection, not rotation — a migration can tell per row what it has already
+ * rewritten, and a row it has not reached fails loudly instead of decrypting to
+ * garbage. Reading two generations at once needs what is not here: a key per
+ * tag, a reader that dispatches on the tag instead of rejecting the unknown one,
+ * and a writer told which tag to mint. A deployment-wide flag would not even buy
+ * the detection — every row rewritten inside one window, with nothing on the row
+ * to say which ones were.
  */
 const VERSION = "v1";
 

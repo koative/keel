@@ -48,15 +48,18 @@ function named(keys: ProviderInputKey[]): string {
 }
 
 /**
- * The bucket the app talks to, or a refusal to boot naming what is missing.
+ * The bucket the app talks to, or a refusal naming what is missing.
  *
- * Every storage variable is optional in `packages/env` on purpose, and nothing in
- * the starter calls this function yet: storage is opt-in, so a contributor who
- * never touches uploads never configures a bucket and never sees any of these
- * throw. That is also why `docker-compose.yml` runs no local object store and
- * should not grow one — an upload feature is what would justify a service to
- * keep healthy and create buckets in, and a filesystem stub in its place would be
- * a second implementation of the one thing `@keel/storage` deliberately avoids
+ * Every storage variable is optional in `packages/env` on purpose, but this
+ * function is live: `/api/storage` is mounted behind `requireUser`, `rateLimit`
+ * and `requireOrg`, and `storage.handlers.ts` resolves on the first signed-in
+ * request, so an unconfigured deployment answers 503 there rather than failing
+ * to boot — a contributor who never touches uploads still never configures a
+ * bucket. That is also why `docker-compose.yml` runs no local object store and
+ * should not grow one: a presigned URL is signed against whichever provider a
+ * deployment names, so a MinIO service to keep healthy and create buckets in
+ * would only stand in for one, and a filesystem stub in its place would be a
+ * second implementation of the one thing `@keel/storage` deliberately avoids
  * having. A deployment that wants uploads names a real provider, and that is the
  * same code path a developer would exercise locally against one.
  *
