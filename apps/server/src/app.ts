@@ -16,6 +16,7 @@ import {
 import { evlog } from "evlog/hono";
 import { cors } from "hono/cors";
 import { internalRoutes } from "@/internal-routes";
+import { audit } from "@/lib/audit";
 import type { AppEnv } from "@/lib/context";
 import { checkReadiness } from "@/lib/health";
 import {
@@ -99,6 +100,28 @@ app.use(evlog());
 // evlog reads x-request-id but never echoes it, so the correlation id would
 // otherwise be invisible to the client.
 app.use(echoRequestId);
+
+/**
+ * The audit trail, mounted at the outermost position that still has a requestId.
+ *
+ * Below `evlog()` because the row's `request_id` is the wide event's own, which is
+ * what joins a recorded mutation to the log line explaining it — above evlog there
+ * is neither a logger nor an id.
+ *
+ * Above everything that can refuse a request: `requestBodyLimit`'s 413, a module's
+ * 401 from `requireUser`, a 403 from `requireOrg`, a validator's 422. A trail that
+ * recorded only what succeeded would be missing precisely the attempts it is read
+ * for, and Hono unwinds a thrown failure into `c.res` before this middleware
+ * resumes, so each of those arrives here as the status the client received.
+ *
+ * Above the `/api/auth/*` registration below, because middleware declared after a
+ * route never runs for it — that placement is the whole reason sign-in, sign-out,
+ * password changes and invitation acceptance appear in the trail at all.
+ *
+ * Below CORS, which is the one middleware that must precede it: a preflight
+ * short-circuits there and an OPTIONS is not a mutation, so nothing is lost.
+ */
+app.use("*", audit);
 
 // Identification runs after evlog because it writes the resolved actor onto the
 // request-scoped logger. Guarded rather than assumed: a future route excluded from

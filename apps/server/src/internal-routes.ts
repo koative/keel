@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { auditRoutes } from "@/lib/audit";
 import type { AppEnv } from "@/lib/context";
 import { internalAiRoutes } from "@/modules/ai";
 import { internalProjectRoutes } from "@/modules/projects";
@@ -26,4 +27,8 @@ import { internalStorageRoutes } from "@/modules/storage";
 export const internalRoutes = new Hono<AppEnv>()
 	.route("/api/projects", internalProjectRoutes)
 	.route("/api/storage", internalStorageRoutes)
-	.route("/api/ai", internalAiRoutes);
+	.route("/api/ai", internalAiRoutes)
+	// The one router here that is not a module: the audit trail is cross-cutting
+	// request machinery, so it lives in lib/ beside the middleware that writes it.
+	// It is mounted here all the same, because the settings page reads it.
+	.route("/api/audit", auditRoutes);

@@ -51,6 +51,16 @@ const IDLE_BUCKET_RETENTION_MS = 60 * 60 * 1000;
 const SETTLED_JOB_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 
 /**
+ * `audit_log` has no retention constant, and this is where you would look for
+ * one. Every sweep in this file drops rows that have stopped meaning anything —
+ * a spent idempotency key, an idle bucket, a settled job. An audit line never
+ * does: the same sweep over the trail is evidence destruction, and it destroys
+ * exactly the rows an investigation reaches for, the old ones. A deployment with
+ * a legal retention ceiling has to schedule that deletion deliberately and say
+ * why; it is not a default this starter is entitled to pick.
+ */
+
+/**
  * The ceiling on one job, and the reason the reaper's threshold is derived from
  * the batch size instead of chosen.
  *
