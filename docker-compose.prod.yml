@@ -5,7 +5,7 @@ name: keel
 # host, pins `NODE_ENV=development`, and its healthcheck-gated `web` would happily
 # serve against a schema nobody migrated.
 #
-# Four deliberate differences from dev:
+# Five deliberate differences from dev:
 #
 #   1. Every value arrives from the deploy environment in the `${VAR:?...}` form, so
 #      a missing one fails the deploy naming itself. Neither file defaults anything;
@@ -19,6 +19,9 @@ name: keel
 #      edge.
 #   4. Logs are size-capped. The default json-file driver grows without bound, and
 #      a disk filled by container logs takes down everything on the host.
+#   5. The database is dumped on a schedule and old dumps are pruned. Dev has no
+#      backup because dev has nothing to lose; a deployment that ships a Postgres
+#      volume and no restore path has everything to lose and does not know it.
 #
 # TLS and routing are deliberately not here. Terminate them in whatever already
 # owns your domain — Traefik, Caddy, nginx, or a PaaS — and point it at `server`
@@ -221,5 +224,59 @@ services:
     volumes:
       - keel_postgres_data:/var/lib/postgresql
 
+  # A logical dump of the database on a fixed interval, into a named volume, with
+  # everything past the retention horizon deleted. `tools/backup.sh` is the loop; the
+  # image is pinned to the same major as `postgres` above because pg_dump refuses a
+  # server newer than itself, so a client left a major behind is how backups stop the
+  # day Postgres is upgraded.
+  #
+  # What this is not is point-in-time recovery. A restore lands on the last dump and
+  # everything written after it is gone, which makes BACKUP_INTERVAL_HOURS the data a
+  # disaster costs rather than a tuning knob. The README says what PITR needs instead.
+  #
+  # The volume is on this host, so a host that dies takes the database and every dump
+  # with it. Copying them somewhere else is the half of a backup no compose file can
+  # do for you.
+  #
+  #   docker compose -f docker-compose.prod.yml exec backup ls -l /backups
+  #   docker compose -f docker-compose.prod.yml exec backup /opt/keel/restore-drill.sh
+  backup:
+    command: ["/bin/sh", "/opt/keel/backup.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Neither key is in @keel/env and neither belongs there — the app never reads a
+      # backup schedule, the same reason POSTGRES_DB is only ever a compose variable.
+      # Both arrive from the deploy rather than being pinned here, because both
+      # answers belong to the deployment: the interval is the recovery point it
+      # accepts, and the retention is its disk.
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:?BACKUP_INTERVAL_HOURS is required, and it is also the window a restore loses}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:?BACKUP_RETENTION_DAYS is required}
+      # The libpq variables, which pg_dump, pg_restore and psql each read themselves.
+      # The dump and the restore drill therefore share one spelling of the connection
+      # and neither script parses a URL.
+      PGDATABASE: ${POSTGRES_DB:?POSTGRES_DB is required}
+      PGHOST: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      PGUSER: postgres
+    image: postgres:18
+    logging: *logging
+    restart: unless-stopped
+    volumes:
+      # Both scripts come from the checkout `build: context: .` already requires on
+      # this host, mounted read-only because nothing in here has any business editing
+      # them. The command is not `postgres`, so the image's entrypoint execs it as
+      # root and a freshly created volume is writable; `umask 077` in the script is
+      # what keeps a dump of every row from being readable to anything else that
+      # mounts it.
+      - ./tools/backup.sh:/opt/keel/backup.sh:ro
+      - ./tools/restore-drill.sh:/opt/keel/restore-drill.sh:ro
+      - keel_backups:/backups
+
 volumes:
+  # Named rather than a bind mount: a path on the host is one more thing to create,
+  # own and get the mode right on before the first dump, and the dumps are read
+  # through `exec backup` either way.
+  keel_backups:
   keel_postgres_data:

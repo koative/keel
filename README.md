@@ -442,3 +442,65 @@ qualify, and so does a different port on the same host; `example.com` with
 `api.example.io` does not. A deployment that genuinely needs cross-site has to widen
 `sameSite` in `packages/auth/src/index.ts` to `"none"` and add a CSRF token of its
 own, because widening it alone removes the only defence the cookie had.
+
+## Backups
+
+`docker-compose.prod.yml` runs a `backup` service beside Postgres: `pg_dump` in
+custom format every `BACKUP_INTERVAL_HOURS` into the `keel_backups` volume, then
+every dump older than `BACKUP_RETENTION_DAYS` deleted — after a dump succeeds, never
+before, because retention on its own timer empties the volume during an outage. Both
+variables are required and neither is defaulted anywhere. Six hours and fourteen days
+is a reasonable starting pair for a small deployment, and it is still a statement
+about how much data you are willing to lose and how much disk you have. Neither is a
+`packages/env` key: the app never reads a backup schedule.
+
+`tools/backup.sh` is the loop, mounted read-only into the service, and the image is
+pinned to the same Postgres major as the database — `pg_dump` refuses a server newer
+than itself, which is how backups stop the day Postgres is upgraded.
+
+**Restoring** goes into a new database beside the live one, never over it:
+
+```bash
+docker compose -f docker-compose.prod.yml exec backup ls -l /backups
+docker compose -f docker-compose.prod.yml exec backup sh -c \
+  'createdb keel_restored && pg_restore --dbname=keel_restored --exit-on-error /backups/keel-20260816T004440Z.dump'
+```
+
+Then point the deploy at it — `POSTGRES_DB=keel_restored`, redeploy — rather than
+writing over the database you are still diagnosing.
+
+**Rehearsing it** is the part that decides whether the above works:
+
+```bash
+docker compose -f docker-compose.prod.yml exec backup /opt/keel/restore-drill.sh
+```
+
+`tools/restore-drill.sh` dumps the database, restores that dump into a scratch
+database, compares `pg_dump --schema-only` output and the row counts of `user`,
+`organization`, `member`, `project` and `job` between the two copies, and drops the
+scratch. It writes nothing to the database it drills, and it needs the room for a
+second copy of it while it runs. The dump and the counts it is checked against come
+out of one exported snapshot, so a database taking writes does not report its own
+writes as rows the restore lost. Any database reachable through the standard `PG*`
+variables will do, the test one included:
+
+```bash
+PGHOST=localhost PGPORT=5433 PGUSER=postgres PGPASSWORD=password \
+  PGDATABASE=keel_test tools/restore-drill.sh
+```
+
+**These dumps are not point-in-time recovery**, and the difference is the whole
+window between two of them: restore the most recent dump and every write since it is
+gone. That makes `BACKUP_INTERVAL_HOURS` a recovery point objective stated out loud
+rather than a tuning knob. PITR needs continuous WAL archiving to storage that is not
+this host — `archive_mode = on` with an `archive_command`, or pgBackRest, WAL-G or
+Barman, shipping segments to a bucket, plus periodic base backups and a restore that
+replays to a target time. It is deliberately not shipped here, because it is a
+bucket, a credential, a retention policy and an alarm on the archive falling behind:
+infrastructure decisions this repository cannot make, and a half-configured archive
+recovers less than an honest interval dump.
+
+They are also not off-site. `keel_backups` is a volume on the same host as the
+database, so a host that dies takes both. Copying the dumps somewhere else — `rclone`
+to object storage from a cron on the host is enough — is the half of a backup no
+compose file can do for you.
