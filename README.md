@@ -241,8 +241,20 @@ Failures retry with exponential backoff until `maxAttempts`, then stop — a poi
 message must not spin forever.
 
 ```bash
-bun dist/tasks.mjs           # periodic maintenance, from whatever runs your cron
+bun dist/tasks.mjs           # periodic maintenance: one pass over every sweep, then exits
 ```
+
+`docker-compose.prod.yml` runs it as a `tasks` service on the worker's image:
+`tools/tasks.sh` sweeps, then sleeps `TASKS_INTERVAL_MINUTES`, mounted read-only the
+way the backup loop is and for the same reason — the runtime image ships no cron
+daemon, and a second scheduling mechanism beside that one is a second place the
+schedule can be wrong. The variable is required, defaulted nowhere, and is not a
+`packages/env` key because the app reads no schedule. Five minutes is a reasonable
+start; what it states is how long a job stranded by a worker that died mid-job waits
+to be requeued, since nothing else recovers those rows. A failed sweep exits non-zero
+and the loop keeps its interval instead of restarting into a database that is already
+refusing. A deployment that does not use that file points its own cron at the same
+command.
 
 A settled job is terminal — no index and no query looks at `done` or `failed`
 again — so `tasks.mjs` deletes them after three days, alongside the other sweeps.

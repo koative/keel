@@ -5,7 +5,7 @@ name: keel
 # host, pins `NODE_ENV=development`, and its healthcheck-gated `web` would happily
 # serve against a schema nobody migrated.
 #
-# Five deliberate differences from dev:
+# Six deliberate differences from dev:
 #
 #   1. Every value arrives from the deploy environment in the `${VAR:?...}` form, so
 #      a missing one fails the deploy naming itself. Neither file defaults anything;
@@ -22,6 +22,10 @@ name: keel
 #   5. The database is dumped on a schedule and old dumps are pruned. Dev has no
 #      backup because dev has nothing to lose; a deployment that ships a Postgres
 #      volume and no restore path has everything to lose and does not know it.
+#   6. Maintenance runs on a schedule. Dev has no `tasks` service because a dev
+#      database that grows is one somebody drops; here nothing else requeues the job
+#      a crashed worker left `running`, and nothing else prunes the four tables that
+#      grow for the life of the deployment.
 #
 # TLS and routing are deliberately not here. Terminate them in whatever already
 # owns your domain — Traefik, Caddy, nginx, or a PaaS — and point it at `server`
@@ -152,6 +156,52 @@ services:
     init: true
     logging: *logging
     restart: unless-stopped
+
+  # Periodic maintenance, on the same image as `worker` with a different command.
+  # Without this service the topology has no owner for two problems, and both are
+  # invisible until they are expensive: a worker killed mid-job leaves its row
+  # `running` and claimed by a process that no longer exists, and nothing else ever
+  # requeues it; and four tables — spent idempotency keys, auth rate-limit counters,
+  # idle token buckets, settled jobs — grow for the life of the deployment.
+  # `dist/tasks.mjs` is what fixes both, and it is a one-shot process that exits, so
+  # it needs something to run it on an interval.
+  #
+  # That something is `tools/tasks.sh`, a sleep loop, for the same reason `backup`
+  # below has one rather than a cron daemon this image does not ship. Sweeps first,
+  # sleeps after, so a deploy reclaims whatever the previous one stranded going down.
+  #
+  # Do not `--scale` this. Overlapping runs are harmless — every statement skips
+  # locked rows — but a second replica only looks for rows the first already took.
+  tasks:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    # The interval is an argument rather than an environment key so this service
+    # forwards `*app-env` unchanged like every other one. Required in the `${VAR:?}`
+    # form and absent from @keel/env on purpose: the app reads no schedule, the same
+    # reason BACKUP_INTERVAL_HOURS is only ever a compose variable. Minutes, because
+    # it is the ceiling on how long a job stranded by a dying worker stays stranded.
+    command:
+      [
+        "/bin/sh",
+        "/opt/keel/tasks.sh",
+        "${TASKS_INTERVAL_MINUTES:?TASKS_INTERVAL_MINUTES is required, and it is also how long a stranded job waits to be requeued}",
+      ]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment: *app-env
+    logging: *logging
+    # Covers the container dying, never a bad sweep: `dist/tasks.mjs` exits 1 when a
+    # sweep failed and the loop deliberately keeps running, because restarting on a
+    # failed sweep would sweep again immediately against a database already refusing.
+    restart: unless-stopped
+    volumes:
+      # From the checkout `build: context: .` already requires on this host, read-only
+      # because nothing in the container has any business editing the loop it runs.
+      - ./tools/tasks.sh:/opt/keel/tasks.sh:ro
 
   server:
     build:
