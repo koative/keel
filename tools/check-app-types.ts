@@ -78,10 +78,15 @@ try {
 		.nothrow()
 		.quiet();
 	if (result.exitCode !== 0) {
+		// `tsc` writes diagnostics to stdout and reserves stderr for its own
+		// failures — a bad config, a crash. Reporting only stderr printed an empty
+		// message for every diagnostic this check exists to surface, which is how
+		// it stayed unnoticed: the check failed correctly and said nothing.
+		const diagnostics = [result.stdout.toString(), result.stderr.toString()]
+			.filter((stream) => stream.trim() !== "")
+			.join("\n");
 		console.error(
-			`${BUNDLE} does not typecheck with skipLibCheck off:\n` +
-				result.stderr.toString() +
-				"\nRegenerate it from app-type.ts: bun run --filter server build:types"
+			`${BUNDLE} does not typecheck with skipLibCheck off:\n${diagnostics}\nRegenerate it from app-type.ts: bun run --filter server build:types`
 		);
 		process.exit(1);
 	}
