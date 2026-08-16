@@ -1,4 +1,7 @@
-import { projectFields, projectWritableFields } from "@keel/contracts/project";
+import {
+	type projectFields,
+	projectWritableFields,
+} from "@keel/contracts/project";
 import { z } from "zod";
 import { type Cursor, decodeCursor } from "@/lib/cursor";
 
