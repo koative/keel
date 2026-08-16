@@ -48,9 +48,14 @@ function RouteComponent() {
 					<h1 className="font-bold text-2xl">{organization.name}</h1>
 					<p className="text-muted-foreground">Welcome {user.name}</p>
 				</div>
-				<Link to="/settings/members">
-					<Button variant="outline">Members</Button>
-				</Link>
+				<div className="flex gap-2">
+					<Link to="/settings/activity">
+						<Button variant="outline">Activity</Button>
+					</Link>
+					<Link to="/settings/members">
+						<Button variant="outline">Members</Button>
+					</Link>
+				</div>
 			</div>
 
 			{projects.length === 0 ? (
