@@ -50,7 +50,8 @@ const WRITE = {
  * change something and one for the methods that do not.
  *
  * MUST be mounted after `requireUser`, which is what puts `actorId` on the
- * context. In front of it there is no actor and the only key left is the client
+ * context — and refuses to run when it is not, rather than keying on whatever
+ * is there. In front of it there is no actor and the only key left is the client
  * address — forgeable behind a misconfigured proxy, and shared by everyone in an
  * office, so one script would throttle a whole building. Better Auth keys its own
  * limiter on IP for `/api/auth/*` because there is genuinely no actor yet there;
@@ -64,11 +65,27 @@ const WRITE = {
  * next to the sessions the same actor already has.
  */
 export const rateLimit = createMiddleware<AppEnv>(async (c, next) => {
+	const actorId = c.get("actorId");
+	if (!actorId) {
+		/*
+		 * Mounted above `requireUser`. `AppEnv` types `actorId` as a plain string
+		 * so that wiring still compiles, and the only symptom would be the key
+		 * `undefined|read`: one bucket for the entire deployment, emptied by
+		 * whoever is busiest and refusing everyone else. A 500 on the first
+		 * request is the cheap version of that outage, and `app.onError` records
+		 * it at error severity with the stack, which a silently shared bucket
+		 * never produces.
+		 */
+		throw new Error(
+			"rateLimit ran with no actorId on the context, so it is mounted above requireUser. Every caller would share one bucket keyed on `undefined`. Mount rateLimit after requireUser."
+		);
+	}
+
 	const mutating = IS_MUTATING[c.req.method] === true;
 	const bucket = mutating ? "write" : "read";
 	const spec = mutating ? WRITE : READ;
 
-	const decision = await consume(`${c.get("actorId")}|${bucket}`, spec);
+	const decision = await consume(`${actorId}|${bucket}`, spec);
 
 	// `RateLimit-Reset` is seconds until the bucket is full again, derived rather
 	// than fixed at the minute the budget is stated in: a caller one token down is

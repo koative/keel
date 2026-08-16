@@ -55,10 +55,33 @@ function replay(record: { response: { body: string }; status: number }) {
  *
  * MUST be mounted after `requireUser` and `requireOrg`: the key space is scoped
  * to `actorId` and `organizationId`, and those guards are what put both on the
- * context. In front of them there is no actor or tenant and every client would
- * share one namespace.
+ * context. It refuses to run when either is missing rather than keying on what
+ * is left: in front of those guards the key space is scoped to nobody, and one
+ * namespace shared by every client is a replay across tenants.
  */
 export const idempotent = createMiddleware<AppEnv>(async (c, next) => {
+	const actorId = c.get("actorId");
+	const organizationId = c.get("organizationId");
+	if (!(actorId && organizationId)) {
+		/*
+		 * Checked before the header, not beside the lookup: the mount is wrong for
+		 * every request, so the first one should say so rather than the first one
+		 * that happens to opt in.
+		 *
+		 * `AppEnv` types both as plain strings, so that wiring compiles and the
+		 * key collapses to `(null, null, key)` — the shared namespace the scope
+		 * exists to prevent. What refuses it today is two `not null` columns a
+		 * layer down: `claim` fails on the insert and the caller gets `null value
+		 * in column "actor_id"`, a 500 that reads as a database fault and names
+		 * nothing. That is a constraint doing this middleware's job, and it stops
+		 * covering the moment either column is written by something that tolerates
+		 * a null. The invariant belongs where the scope is decided.
+		 */
+		throw new Error(
+			"idempotent ran with no actorId or organizationId on the context, so it is mounted above requireUser or requireOrg. Every client would share one key namespace. Mount idempotent after both guards."
+		);
+	}
+
 	const supplied = c.req.header(HEADER);
 	if (supplied === undefined) {
 		// The header is optional. A client that does not opt in gets the ordinary
@@ -74,8 +97,6 @@ export const idempotent = createMiddleware<AppEnv>(async (c, next) => {
 		);
 	}
 
-	const actorId = c.get("actorId");
-	const organizationId = c.get("organizationId");
 	// Reading the body here is safe: `c.req.text()` fills Hono's body cache and
 	// `c.req.json()` reads through that same cache, so the validator and the
 	// handler downstream still see the body.
