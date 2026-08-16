@@ -341,6 +341,33 @@ export function createAuth() {
 		 * widened to stop complaints stops meaning anything.
 		 */
 		session: {
+			/**
+			 * The session travels in a second, signed cookie for a minute, and a
+			 * request that arrives with a valid one costs no session SELECT at all —
+			 * `getSession` returns the cached copy and never reaches the adapter.
+			 *
+			 * This is a tradeoff and not a free win, and the number is the whole of
+			 * it: a cached session is honoured until the cache expires, so revoking a
+			 * session — or removing a member, or changing a password — takes effect
+			 * within 60 seconds rather than instantly. Sixty is the shortest window
+			 * that still absorbs a page load's burst of requests, and it is the
+			 * number the account settings UI states verbatim where a user ends a
+			 * session: a security control that silently lags is worse than none.
+			 *
+			 * The window is a hard ceiling rather than a sliding one, which is what
+			 * makes that claim true. `refreshCache` is left unset, so the installed
+			 * 1.6.25 resolves `cookieRefreshCache` to `false` and a cached request
+			 * returns without re-signing the cookie. With it enabled, a client making
+			 * one request a second would keep extending its own window and a revoked
+			 * session would never notice.
+			 *
+			 * `requireOrg` is unaffected and stays a query per request: it reads the
+			 * `member` row, which is the authorization decision, not the session.
+			 */
+			cookieCache: {
+				enabled: true,
+				maxAge: 60,
+			},
 			expiresIn: 60 * 60 * 24,
 			updateAge: 60 * 60,
 		},
