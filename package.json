@@ -13,7 +13,6 @@
       "@hookform/resolvers": "^5.5.7",
       "@openrouter/ai-sdk-provider": "^3.0.0",
       "@scalar/hono-api-reference": "^0.11.13",
-      "@shadcn/react": "^0.2.1",
       "@t3-oss/env-core": "^0.13.11",
       "@tailwindcss/postcss": "^4.3.3",
       "@tailwindcss/vite": "^4.3.3",
