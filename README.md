@@ -355,12 +355,16 @@ delivered verification mail has no business leaving its URL in a table for a yea
 ## Secrets at rest
 
 `@keel/crypto/seal` is AES-256-GCM with a versioned envelope, `v1.<iv>.<tag>.<ct>`.
-The version prefix is the point: a key rotation or an algorithm change is detectable
-per row, so migrating off one does not need a flag day. Set `SECRETS_ENCRYPTION_KEY`
-to `openssl rand -base64 32` before storing a third-party token. No in-repo
-integration stores a third-party token through `seal` yet — the cipher ships tested
-and documented, and the first consumer (an OAuth provider token column, a webhook
-secret store) is where the rotation semantics become load-bearing.
+The version prefix buys detection, not rotation. Only one generation exists, and
+`open` refuses anything else, so a migration can tell per row what it has already
+rewritten and a row it has not reached fails loudly instead of decrypting to garbage.
+Reading two generations at once would need a key per tag, a reader that dispatches on
+the tag rather than rejecting the unknown one, and a writer told which tag to mint —
+none of which is here, so a key change means rewriting every sealed row. Set
+`SECRETS_ENCRYPTION_KEY` to `openssl rand -base64 32` before storing a third-party
+token. No in-repo integration stores a third-party token through `seal` yet — the
+cipher ships tested and documented, and the first consumer (an OAuth provider token
+column, a webhook secret store) is where the rotation semantics become load-bearing.
 
 ## Adding a module
 
