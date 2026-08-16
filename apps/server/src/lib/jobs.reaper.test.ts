@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
 import { eq, inArray } from "drizzle-orm";
-import { claim, enqueue, reclaimStrandedJobs } from "@/lib/jobs.repository";
-import { skipNotice, testDbReady } from "../../test-db";
+import { enqueue, reclaimStrandedJobs } from "@/lib/jobs.repository";
+import { claimUntilFound, skipNotice, testDbReady } from "../../test-db";
 
 const ready = await testDbReady();
 if (!ready) {
@@ -111,11 +111,14 @@ describe.skipIf(!ready)("stranded job reaper", () => {
 		const id = await strand({ lockedAt: hoursAgo(2) });
 
 		await reclaimStrandedJobs(STALE_AFTER_MS);
-		const claimed = await claim("live-worker:2", BATCH);
 
-		// Asserted by id rather than by batch length, for the same reason the
-		// count above is a lower bound.
-		expect(claimed.map((entry) => entry.id)).toContain(id);
+		// Drained rather than claimed once: the reaper requeues with
+		// `run_at = now()`, which puts the row last in `claim`'s `order by run_at`,
+		// so a single batch misses it as soon as `BATCH` older rows are due — which
+		// is what the rest of the suite run leaves in the table.
+		const mine = await claimUntilFound(id, "live-worker:2", BATCH);
+
+		expect(mine?.id).toBe(id);
 		// The id survives the round trip, which is what `ai_usage.job_id` and the
 		// provider idempotency key in `mail.send` are both keyed on.
 		expect((await rowFor(id))?.status).toBe("running");

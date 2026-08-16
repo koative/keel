@@ -2,6 +2,36 @@ import { db } from "@keel/db";
 import { user } from "@keel/db/schema/auth";
 import { member, organization } from "@keel/db/schema/organization";
 import { eq, sql } from "drizzle-orm";
+import { type ClaimedJob, claim } from "@/lib/jobs.repository";
+
+/**
+ * Claims until the given row comes back, or the queue runs dry.
+ *
+ * One claim is not enough for any suite that asserts its own row was taken.
+ * `claim` is global and orders by `run_at`, so a row whose `run_at` is recent is
+ * last in line — a freshly enqueued one, or one the reaper requeued, since that
+ * sets `run_at = now()`. Every older due row is claimed first, and a single
+ * batch misses the row entirely once `limit` others are waiting, which is what a
+ * concurrent suite or an interrupted run leaves behind. Each claim moves what it
+ * takes out of `pending`, so the pool shrinks and this terminates.
+ */
+export async function claimUntilFound(
+	id: string,
+	workerId: string,
+	limit: number
+): Promise<ClaimedJob | undefined> {
+	let batch = await claim(workerId, limit);
+
+	while (batch.length > 0) {
+		const mine = batch.find((entry) => entry.id === id);
+		if (mine !== undefined) {
+			return mine;
+		}
+
+		// biome-ignore lint/performance/noAwaitInLoops: each claim has to see what the previous one moved out of `pending`; overlapping claims would read the same rows and never drain.
+		batch = await claim(workerId, limit);
+	}
+}
 
 /**
  * Whether a table is present, which is what a suite for a table that does not

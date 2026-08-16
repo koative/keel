@@ -2,14 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { db } from "@keel/db";
 import { job } from "@keel/db/schema/job";
 import { eq, inArray } from "drizzle-orm";
-import {
-	type ClaimedJob,
-	claim,
-	type EnqueueInput,
-	enqueue,
-	fail,
-} from "@/lib/jobs.repository";
-import { skipNotice, testDbReady } from "../../test-db";
+import { claim, type EnqueueInput, enqueue, fail } from "@/lib/jobs.repository";
+import { claimUntilFound, skipNotice, testDbReady } from "../../test-db";
 
 const ready = await testDbReady();
 if (!ready) {
@@ -73,30 +67,6 @@ function backoffDeltaMs(row: { runAt: Date } | undefined): number {
 }
 
 /**
- * Claims until this suite's row comes back, or the queue runs dry.
- *
- * One claim is not enough. `claim` is global and orders by `run_at`, so a row
- * enqueued a moment ago is last in line: every other due row — a concurrent
- * suite's, or one an interrupted run left behind — is taken first, and a single
- * batch of `BATCH` misses this row entirely once `BATCH` others are waiting.
- * Each claim moves what it takes to `running`, so the pending pool shrinks and
- * this terminates.
- */
-async function claimUntilFound(id: string): Promise<ClaimedJob | undefined> {
-	let batch = await claim(WORKER, BATCH);
-
-	while (batch.length > 0) {
-		const mine = batch.find((entry) => entry.id === id);
-		if (mine !== undefined) {
-			return mine;
-		}
-
-		// biome-ignore lint/performance/noAwaitInLoops: each claim has to see what the previous one moved out of `pending`; overlapping claims would read the same rows and never drain.
-		batch = await claim(WORKER, BATCH);
-	}
-}
-
-/**
  * Claims the job, then fails it as its owner.
  *
  * `fail` and `complete` are fenced on `status = 'running'` and on the claiming
@@ -109,7 +79,7 @@ async function claimThenFail(id: string, error: unknown): Promise<void> {
 		.update(job)
 		.set({ runAt: new Date(Date.now() - 60_000) })
 		.where(eq(job.id, id));
-	await claimUntilFound(id);
+	await claimUntilFound(id, WORKER, BATCH);
 	await fail(id, WORKER, error);
 }
 
@@ -123,7 +93,7 @@ describe.skipIf(!ready)("job queue", () => {
 	it("hands an enqueued job to the first worker that claims", async () => {
 		const id = await enqueueId({ kind: "test.echo", payload: { n: 1 } });
 
-		const mine = await claimUntilFound(id);
+		const mine = await claimUntilFound(id, WORKER, BATCH);
 
 		expect(mine?.id).toBe(id);
 		expect(mine?.kind).toBe("test.echo");
