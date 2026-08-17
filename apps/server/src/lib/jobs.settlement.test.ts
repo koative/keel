@@ -4,13 +4,12 @@ import { job } from "@keel/db/schema/job";
 import { eq, inArray } from "drizzle-orm";
 import { type JobRegistry, runOnce } from "@/lib/jobs";
 import {
-	claim,
 	complete,
 	enqueue,
 	markUnsettled,
 	SETTLEMENT_ERROR_PREFIX,
 } from "@/lib/jobs.repository";
-import { skipNotice, testDbReady } from "../../test-db";
+import { claimUntilFound, skipNotice, testDbReady } from "../../test-db";
 
 const ready = await testDbReady();
 if (!ready) {
@@ -38,10 +37,10 @@ afterEach(async () => {
 /**
  * Enqueues one row, backdated an hour, and records its id for cleanup.
  *
- * `claim` is global and orders by `run_at`, so an hour-old row sorts ahead of
- * every row a concurrent suite creates. That is what lets the claims below take
- * a batch of one and know which row they got: an unbounded batch would drag a
- * peer's row into `runJob`, which has no handler for it and would fail it.
+ * The backdating puts the row ahead of anything a concurrent suite enqueues
+ * while this one runs. It does not put it ahead of a row an *interrupted* run
+ * left due and pending, which is why `claimed` below drains rather than trusting
+ * position.
  */
 async function enqueueId(kind = "test.echo"): Promise<string> {
 	const { id } = await enqueue({
@@ -60,12 +59,24 @@ async function enqueueId(kind = "test.echo"): Promise<string> {
  * Enqueues a job and takes it as WORKER.
  *
  * Every settling call starts from here, because both statements are fenced on
- * `status = 'running'` and on the claiming worker's id — a job that was never
+ * `status = 'running'` and on the claiming worker's own id — a job that was never
  * claimed cannot be settled by anyone, which is the point of the fence.
+ *
+ * A batch of one, so no peer's row is ever handed to `runJob`, which has no
+ * handler for it and would fail it. `claimUntilFound` then repeats that
+ * single-row claim until this row comes back and puts every other row it took
+ * back where it found it — the assumption that one claim lands on the oldest row
+ * and the oldest row is ours held until a table with 14 due rows left over from
+ * an interrupted run failed all five tests here.
  */
 async function claimed(): Promise<string> {
 	const id = await enqueueId();
-	await claim(WORKER, 1);
+	const mine = await claimUntilFound(id, WORKER, 1);
+	if (mine === undefined) {
+		throw new Error(
+			`expected to claim ${id}, but the queue drained without it`
+		);
+	}
 	return id;
 }
 
